@@ -1,0 +1,56 @@
+version: "3.9"
+services:
+  web:
+    build: .
+    env_file: .env
+    depends_on:
+      - db
+      - redis
+      - mailhog
+    ports:
+      - "8000:8000"
+
+  worker:
+    build: .
+    env_file: .env
+    command: celery -A notifier worker -l info
+    depends_on:
+      - redis
+      - db
+
+  beat:
+    build: .
+    env_file: .env
+    command: celery -A notifier beat -l info
+    depends_on:
+      - redis
+      - db
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: notif
+      POSTGRES_USER: notif
+      POSTGRES_PASSWORD: notif
+    ports:
+      - "5432:5432"
+
+  nginx:
+    image: nginx:1.27
+    depends_on:
+      - web
+    ports:
+      - "80:80"
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    ports:
+      - "1025:1025"  # SMTP
+      - "8025:8025"  # Web UI
