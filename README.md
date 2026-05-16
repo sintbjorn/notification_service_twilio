@@ -1,5 +1,14 @@
 # Notification Service
 
+![Python](https://img.shields.io/badge/Python-3.12-blue)
+![Django](https://img.shields.io/badge/Django-4.2-0C4B33)
+![DRF](https://img.shields.io/badge/DRF-3.15-red)
+![Celery](https://img.shields.io/badge/Celery-5.4-37814A)
+![Docker](https://img.shields.io/badge/Docker-Compose-2496ED)
+![CI](https://img.shields.io/badge/CI-GitHub%20Actions-2088FF)
+![Ruff](https://img.shields.io/badge/Lint-Ruff-46A6FF)
+![Coverage](https://img.shields.io/badge/Coverage-enabled-brightgreen)
+
 A production-oriented notification service built with **Django**, **Django REST Framework**,
 **Celery**, **Redis**, **PostgreSQL**, **Strawberry GraphQL**, and **Docker**.
 
@@ -30,6 +39,7 @@ auditable delivery history.
 - Idempotency key support to prevent duplicate notification enqueueing.
 - Request correlation with `X-Request-ID`.
 - Structured JSON logs for API and delivery workflows.
+- Prometheus counters for notification and delivery attempt outcomes.
 - Docker Compose setup for local development.
 - GitHub Actions CI for linting, migration checks, and tests.
 - Mailhog integration for local email testing.
@@ -47,23 +57,55 @@ auditable delivery history.
 - **Docker / Docker Compose**
 - **Ruff**
 - **Coverage.py**
+- **Prometheus client**
 
 ## Architecture
+
+High-level request and delivery flow:
+
+```text
+Client / Internal Service
+        |
+        v
+      Nginx
+        |
+        v
+Django REST / GraphQL API
+        |
+        |  persist Notification + DeliveryAttempt audit data
+        v
+   PostgreSQL
+        |
+        |  transaction.on_commit(...)
+        v
+   Redis queue/cache
+        |
+        v
+   Celery worker
+        |
+        |  retry + channel fallback
+        v
+Email / SMS / Telegram providers
+```
 
 ```mermaid
 flowchart LR
     client["Client / API Consumer"]
+    nginx["Nginx<br/>Reverse Proxy"]
     django["Django API<br/>DRF + GraphQL"]
     db[("PostgreSQL<br/>Notifications + Attempts")]
     redis[("Redis<br/>Broker + Cache")]
     worker["Celery Worker<br/>Retry + Fallback"]
+    prometheus["Prometheus<br/>/metrics"]
     mailhog["Mailhog<br/>Local SMTP"]
     twilio["Twilio API<br/>SMS"]
     telegram["Telegram Bot API"]
 
-    client -->|"REST / GraphQL"| django
+    client -->|"REST / GraphQL"| nginx
+    nginx --> django
     django -->|"Create notification"| db
     django -->|"transaction.on_commit"| redis
+    prometheus -->|"scrape"| django
     redis -->|"Task message"| worker
     worker -->|"Read/update status"| db
     worker -->|"Email"| mailhog
@@ -73,6 +115,17 @@ flowchart LR
 
 Delivery attempts are persisted in `DeliveryAttempt`, which makes retries and failures
 visible for debugging, admin review, and future analytics.
+
+Core components:
+
+- **Nginx** terminates external HTTP traffic and proxies requests to Django.
+- **Django REST / GraphQL API** validates requests, enforces API key auth, throttles
+  notification creation, and stores durable notification records.
+- **PostgreSQL** stores users, notifications, idempotency keys, and delivery attempts.
+- **Redis** acts as Celery broker/result backend and cache backend.
+- **Celery worker** performs provider calls outside the request path, with retry and
+  fallback behavior.
+- **Providers** deliver messages through SMTP/Mailhog, Twilio SMS, and Telegram Bot API.
 
 ## Visual Proof
 
@@ -161,9 +214,10 @@ mailhog   Local SMTP inbox
 | --- | --- | --- |
 | `POST` | `/api/notifications/` | Create and enqueue a notification; requires `X-API-Key` |
 | `GET` | `/api/notifications/{id}/` | Retrieve notification status; requires `X-API-Key` |
-| `POST` | `/api/telegram/webhook/` | Telegram Bot API webhook for `/start` onboarding |
+| `POST` | `/webhooks/telegram/` | Telegram Bot API webhook for `/start` onboarding |
 | `GET` | `/api/schema/` | OpenAPI schema |
 | `GET` | `/api/docs/` | Swagger UI |
+| `GET` | `/metrics` | Prometheus metrics |
 | `GET` | `/graphql` | GraphiQL playground |
 | `GET` | `/healthz` | Health check |
 | `GET` | `/admin/` | Django admin |
@@ -395,6 +449,33 @@ Example log events:
 {"level":"INFO","logger":"notifications.tasks","message":"notification.sent","notification_id":1,"channel":"sms","status":"sent"}
 ```
 
+Prometheus metrics are exposed at:
+
+```text
+http://localhost:8000/metrics
+```
+
+Key counters:
+
+```text
+notifications_sent_total
+notifications_failed_total
+delivery_attempts_total{channel,status}
+```
+
+## Architecture Decisions
+
+- **Celery for delivery**: notification delivery is slow and failure-prone because it
+  depends on external providers, so it runs outside the request/response path.
+- **`transaction.on_commit` before enqueueing**: Celery tasks are published only after the
+  `Notification` row is committed, preventing workers from loading missing data.
+- **Idempotency key**: clients can safely retry `POST /api/notifications/` without
+  creating duplicate notifications or duplicate delivery jobs.
+- **Delivery attempts audit trail**: each provider attempt is persisted for debugging,
+  support workflows, admin review, and future analytics.
+- **API key auth**: the REST API is designed for service-to-service calls, where a shared
+  service key is simpler and more realistic than end-user login flows.
+
 ## Provider Notes
 
 **Email**
@@ -427,7 +508,7 @@ register the webhook:
 
 ```bash
 curl -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook" \
-  -d "url=https://your-public-url.example.com/api/telegram/webhook/" \
+  -d "url=https://your-public-url.example.com/webhooks/telegram/" \
   -d "secret_token=$TELEGRAM_WEBHOOK_SECRET"
 ```
 
@@ -464,9 +545,8 @@ For Twilio trial accounts, both the sender and recipient may need to be verified
 ## Current Limitations
 
 - Provider credentials are configured through environment variables only.
-- Observability can be expanded with metrics, tracing, and Sentry.
+- Observability can be expanded with tracing and Sentry.
 
 ## Roadmap
 
-- Add Prometheus metrics for sent, failed, and retried notifications.
 - Add provider-level integration tests with mocked external APIs.

@@ -12,3 +12,4 @@ gunicorn==22.0.0
 python-dotenv==1.0.1
 requests==2.32.3
 dj-database-url==2.3.0
+prometheus-client==0.21.1

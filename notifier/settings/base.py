@@ -161,6 +161,7 @@ SMTP_SENDER = os.getenv("SMTP_SENDER", "no-reply@example.com")
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "fake-token")
 TELEGRAM_WEBHOOK_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
+TELEGRAM_WEBHOOK_MAX_BODY_BYTES = int(os.getenv("TELEGRAM_WEBHOOK_MAX_BODY_BYTES", "65536"))
 TWILIO_SID = os.getenv("TWILIO_SID", "sid")
 TWILIO_TOKEN = os.getenv("TWILIO_TOKEN", "token")
 TWILIO_FROM = os.getenv("TWILIO_FROM", "+10000000000")

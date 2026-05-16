@@ -3,6 +3,7 @@ import logging
 from celery import shared_task
 from django.db import transaction
 
+from .metrics import delivery_attempts_total, notifications_failed_total, notifications_sent_total
 from .models import DeliveryAttempt, Notification, NotificationStatus
 from .services.factory import get_provider
 
@@ -73,6 +74,7 @@ def send_notification_task(self, notification_id: int):
                 success=False,
                 error=str(exc),
             )
+            delivery_attempts_total.labels(channel=ch, status="failed").inc()
             next_attempt = failed_attempts + 1
             logger.warning(
                 "notification.channel_failed",
@@ -103,6 +105,8 @@ def send_notification_task(self, notification_id: int):
             DeliveryAttempt.objects.create(notification=notif, channel=ch, success=True)
             notif.status = NotificationStatus.SENT
             notif.save(update_fields=["status"])
+        delivery_attempts_total.labels(channel=ch, status="sent").inc()
+        notifications_sent_total.inc()
         logger.info(
             "notification.sent",
             extra={"notification_id": notif.id, "channel": ch, "status": NotificationStatus.SENT},
@@ -111,6 +115,7 @@ def send_notification_task(self, notification_id: int):
 
     notif.status = NotificationStatus.FAILED
     notif.save(update_fields=["status"])
+    notifications_failed_total.inc()
     logger.error(
         "notification.failed",
         extra={"notification_id": notif.id, "status": NotificationStatus.FAILED},
