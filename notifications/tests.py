@@ -164,3 +164,17 @@ class NotificationAPITests(TestCase):
 
         self.assertEqual(first.status_code, 201)
         self.assertEqual(second.status_code, 429)
+
+
+class RequestIDMiddlewareTests(TestCase):
+    def test_response_includes_provided_request_id(self):
+        response = self.client.get("/healthz", HTTP_X_REQUEST_ID="portfolio-request-1")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["X-Request-ID"], "portfolio-request-1")
+
+    def test_response_includes_generated_request_id(self):
+        response = self.client.get("/healthz")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response["X-Request-ID"])

@@ -1,3 +1,5 @@
+import logging
+
 from celery import shared_task
 from django.db import transaction
 
@@ -6,6 +8,7 @@ from .services.factory import get_provider
 
 MAX_RETRIES_PER_CHANNEL = 3
 RETRY_BACKOFF_SECONDS = (5, 30, 120)
+logger = logging.getLogger(__name__)
 
 
 def _send_via_channel(provider, channel: str, notification: Notification) -> None:
@@ -39,6 +42,10 @@ def send_notification_task(self, notification_id: int):
     if notif.status == NotificationStatus.QUEUED:
         notif.status = NotificationStatus.PROCESSING
         notif.save(update_fields=["status"])
+        logger.info(
+            "notification.processing",
+            extra={"notification_id": notif.id, "status": NotificationStatus.PROCESSING},
+        )
 
     for ch in channels:
         if notif.attempts.filter(channel=ch, success=True).exists():
@@ -50,6 +57,14 @@ def send_notification_task(self, notification_id: int):
 
         try:
             provider = get_provider(ch)
+            logger.info(
+                "notification.channel_attempt",
+                extra={
+                    "notification_id": notif.id,
+                    "channel": ch,
+                    "attempt": failed_attempts + 1,
+                },
+            )
             _send_via_channel(provider, ch, notif)
         except Exception as exc:
             DeliveryAttempt.objects.create(
@@ -59,10 +74,28 @@ def send_notification_task(self, notification_id: int):
                 error=str(exc),
             )
             next_attempt = failed_attempts + 1
+            logger.warning(
+                "notification.channel_failed",
+                extra={
+                    "notification_id": notif.id,
+                    "channel": ch,
+                    "attempt": next_attempt,
+                    "error": str(exc),
+                },
+            )
             if next_attempt < MAX_RETRIES_PER_CHANNEL:
                 countdown = RETRY_BACKOFF_SECONDS[
                     min(next_attempt - 1, len(RETRY_BACKOFF_SECONDS) - 1)
                 ]
+                logger.info(
+                    "notification.retry_scheduled",
+                    extra={
+                        "notification_id": notif.id,
+                        "channel": ch,
+                        "attempt": next_attempt + 1,
+                        "countdown_seconds": countdown,
+                    },
+                )
                 raise self.retry(exc=exc, countdown=countdown) from exc
             continue
 
@@ -70,8 +103,16 @@ def send_notification_task(self, notification_id: int):
             DeliveryAttempt.objects.create(notification=notif, channel=ch, success=True)
             notif.status = NotificationStatus.SENT
             notif.save(update_fields=["status"])
+        logger.info(
+            "notification.sent",
+            extra={"notification_id": notif.id, "channel": ch, "status": NotificationStatus.SENT},
+        )
         return True
 
     notif.status = NotificationStatus.FAILED
     notif.save(update_fields=["status"])
+    logger.error(
+        "notification.failed",
+        extra={"notification_id": notif.id, "status": NotificationStatus.FAILED},
+    )
     return False

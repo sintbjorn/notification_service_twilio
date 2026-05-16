@@ -27,6 +27,8 @@ auditable delivery history.
 - Channel fallback based on user-level priority.
 - Per-channel retry tracking with delivery audit records.
 - Idempotency key support to prevent duplicate notification enqueueing.
+- Request correlation with `X-Request-ID`.
+- Structured JSON logs for API and delivery workflows.
 - Docker Compose setup for local development.
 - GitHub Actions CI for linting, migration checks, and tests.
 - Mailhog integration for local email testing.
@@ -233,6 +235,7 @@ Create a notification:
 curl -X POST http://localhost:8000/api/notifications/ \
   -H "Content-Type: application/json" \
   -H "X-API-Key: dev-notification-api-key" \
+  -H "X-Request-ID: portfolio-demo-001" \
   -d '{
     "user_id": 1,
     "subject": "Hello",
@@ -245,7 +248,8 @@ Retrieve notification status:
 
 ```bash
 curl http://localhost:8000/api/notifications/1/ \
-  -H "X-API-Key: dev-notification-api-key"
+  -H "X-API-Key: dev-notification-api-key" \
+  -H "X-Request-ID: portfolio-demo-001"
 ```
 
 ## GraphQL Example
@@ -345,6 +349,26 @@ DJANGO_SECRET_KEY=strong-secret
 DJANGO_ALLOWED_HOSTS=example.com,www.example.com
 DJANGO_CSRF_TRUSTED_ORIGINS=https://example.com,https://www.example.com
 NOTIFICATION_API_KEY=strong-service-api-key
+LOG_LEVEL=INFO
+```
+
+## Observability
+
+Every HTTP response includes an `X-Request-ID` header. If the caller provides
+`X-Request-ID`, the service reuses it; otherwise, it generates a new request id.
+
+The application writes structured JSON logs to stdout. Delivery logs include operational
+fields such as `notification_id`, `channel`, `attempt`, `status`, `error`, and
+`countdown_seconds`.
+
+Example log events:
+
+```json
+{"level":"INFO","logger":"notifications.services.producer","message":"notification.created","request_id":"portfolio-demo-001","notification_id":1,"user_id":1,"idempotency_key":"demo-001"}
+{"level":"INFO","logger":"notifications.tasks","message":"notification.channel_attempt","notification_id":1,"channel":"email","attempt":1}
+{"level":"WARNING","logger":"notifications.tasks","message":"notification.channel_failed","notification_id":1,"channel":"email","attempt":1,"error":"smtp unavailable"}
+{"level":"INFO","logger":"notifications.tasks","message":"notification.retry_scheduled","notification_id":1,"channel":"email","attempt":2,"countdown_seconds":5}
+{"level":"INFO","logger":"notifications.tasks","message":"notification.sent","notification_id":1,"channel":"sms","status":"sent"}
 ```
 
 ## Provider Notes
@@ -388,10 +412,9 @@ For Twilio trial accounts, both the sender and recipient may need to be verified
 ## Current Limitations
 
 - Provider credentials are configured through environment variables only.
-- Observability can be expanded with structured logs, metrics, tracing, and Sentry.
+- Observability can be expanded with metrics, tracing, and Sentry.
 
 ## Roadmap
 
-- Add structured JSON logging and request correlation IDs.
 - Add Prometheus metrics for sent, failed, and retried notifications.
 - Add provider-level integration tests with mocked external APIs.
