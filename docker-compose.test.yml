@@ -1,4 +1,19 @@
 services:
+  web:
+    environment:
+      DJANGO_SETTINGS_MODULE: notifier.settings.test
+    depends_on: !reset []
+
+  worker:
+    environment:
+      DJANGO_SETTINGS_MODULE: notifier.settings.test
+    depends_on: !reset []
+
+  beat:
+    environment:
+      DJANGO_SETTINGS_MODULE: notifier.settings.test
+    depends_on: !reset []
+
   db:
     ports: !reset []
 

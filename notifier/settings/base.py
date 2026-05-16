@@ -139,7 +139,9 @@ REST_FRAMEWORK = {
 
 SPECTACULAR_SETTINGS = {
     "TITLE": "Notification Service API",
-    "DESCRIPTION": "Asynchronous notification delivery with retries, fallback channels, and idempotency.",
+    "DESCRIPTION": (
+        "Asynchronous notification delivery with retries, fallback channels, and idempotency."
+    ),
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
 }

@@ -179,7 +179,11 @@ notifications/
     providers.py            # Email, SMS, Telegram providers
 
 notifier/
-  settings.py               # Django, Celery, Redis, database settings
+  settings/
+    base.py                 # Shared Django, Celery, Redis, database settings
+    local.py                # Local Docker/development settings
+    test.py                 # Fast deterministic test settings
+    production.py           # Security-hardened production settings
   celery.py                 # Celery app configuration
   urls.py                   # REST, GraphQL, admin, health routes
 
@@ -279,6 +283,9 @@ query {
 
 ## Development
 
+The default development profile is `notifier.settings.local`. Docker Compose sets it for
+the web, worker, and beat containers.
+
 Run tests with the Docker test override. This avoids binding PostgreSQL, Redis, and
 Mailhog ports to the host, which makes the command safer on machines where those ports
 are already in use.
@@ -316,6 +323,23 @@ Check service health:
 
 ```bash
 curl http://localhost:8000/healthz
+```
+
+## Settings Profiles
+
+| Module | Purpose |
+| --- | --- |
+| `notifier.settings.local` | Local Docker development with debug enabled by default |
+| `notifier.settings.test` | Test runs with eager Celery, local memory cache, and SQLite |
+| `notifier.settings.production` | Production runtime with strict host and HTTPS settings |
+
+Production requires:
+
+```text
+DJANGO_SETTINGS_MODULE=notifier.settings.production
+DJANGO_SECRET_KEY=strong-secret
+DJANGO_ALLOWED_HOSTS=example.com,www.example.com
+DJANGO_CSRF_TRUSTED_ORIGINS=https://example.com,https://www.example.com
 ```
 
 ## Provider Notes
@@ -362,12 +386,9 @@ For Twilio trial accounts, both the sender and recipient may need to be verified
 - API throttling is not enabled yet.
 - Provider credentials are configured through environment variables only.
 - Observability can be expanded with structured logs, metrics, tracing, and Sentry.
-- Settings are currently in a single module and can be split into local/test/production
-  modules as the next production-hardening step.
 
 ## Roadmap
 
-- Split Django settings into `base`, `local`, `test`, and `production`.
 - Add API authentication and request throttling.
 - Add structured JSON logging and request correlation IDs.
 - Add Prometheus metrics for sent, failed, and retried notifications.
