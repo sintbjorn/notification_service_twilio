@@ -118,6 +118,21 @@ http://localhost:8025
 After creating a notification for a user with an email address, the delivered email should
 appear in the Mailhog inbox.
 
+### Django Admin
+
+The admin UI works as a small operational dashboard:
+
+```text
+http://localhost:8000/admin/
+```
+
+Useful portfolio screenshots:
+
+- Notification list with status, attempt counts, failed attempt counts, and idempotency key.
+- Notification detail page with inline delivery attempts.
+- Delivery attempt list filtered by channel, success, and creation time.
+- User list with notification counts and channel priority.
+
 ### Docker Containers
 
 The full stack runs through Docker Compose:
@@ -319,6 +334,12 @@ Create an admin user:
 
 ```bash
 docker compose exec web python manage.py createsuperuser
+```
+
+Open the operational dashboard:
+
+```text
+http://localhost:8000/admin/
 ```
 
 Follow Celery worker logs:
