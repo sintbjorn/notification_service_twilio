@@ -128,10 +128,11 @@ http://localhost:8000/admin/
 
 Useful portfolio screenshots:
 
-- Notification list with status, attempt counts, failed attempt counts, and idempotency key.
+- Notification list with colored status, attempt counts, failed attempt counts, and idempotency key.
 - Notification detail page with inline delivery attempts.
-- Delivery attempt list filtered by channel, success, and creation time.
-- User list with notification counts and channel priority.
+- Delivery attempt list filtered by channel, success, and creation time, with linked users.
+- User list with notification counts, latest notification time, and channel priority.
+- Admin action that clones selected failed notifications for redelivery while preserving audit history.
 
 ### Docker Containers
 
