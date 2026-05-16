@@ -181,6 +181,32 @@ class RequestIDMiddlewareTests(TestCase):
         self.assertTrue(response["X-Request-ID"])
 
 
+class SystemEndpointTests(TestCase):
+    def test_liveness_endpoint_returns_ok(self):
+        response = self.client.get("/health/live")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "ok")
+
+    def test_readiness_endpoint_checks_dependencies(self):
+        response = self.client.get("/health/ready")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["checks"]["database"], True)
+        self.assertEqual(response.json()["checks"]["cache"], True)
+
+    def test_metrics_requires_api_key(self):
+        response = self.client.get("/metrics")
+
+        self.assertEqual(response.status_code, 401)
+
+    def test_metrics_accepts_api_key(self):
+        response = self.client.get("/metrics", HTTP_X_API_KEY="test-notification-api-key")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("text/plain", response["Content-Type"])
+
+
 class TelegramWebhookTests(TestCase):
     def telegram_update(self, chat_id="12345", text="/start"):
         return {

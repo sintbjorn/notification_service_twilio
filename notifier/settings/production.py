@@ -20,6 +20,7 @@ if TELEGRAM_BOT_TOKEN != "fake-token" and not TELEGRAM_WEBHOOK_SECRET:  # noqa: 
     raise ImproperlyConfigured("TELEGRAM_WEBHOOK_SECRET must be set when Telegram is enabled.")
 
 CSRF_TRUSTED_ORIGINS = env_list("DJANGO_CSRF_TRUSTED_ORIGINS")  # noqa: F405
+ENABLE_GRAPHIQL = False
 
 SECURE_SSL_REDIRECT = env_bool("DJANGO_SECURE_SSL_REDIRECT", True)  # noqa: F405
 SESSION_COOKIE_SECURE = True

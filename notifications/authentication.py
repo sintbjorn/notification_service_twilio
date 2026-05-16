@@ -46,4 +46,8 @@ class APIKeyAuthenticationScheme(OpenApiAuthenticationExtension):
             "type": "apiKey",
             "in": "header",
             "name": "X-API-Key",
+            "description": (
+                "Service-to-service API key. Use the `X-API-Key` header for REST "
+                "notification endpoints and protected operational endpoints."
+            ),
         }

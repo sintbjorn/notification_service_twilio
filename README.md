@@ -146,8 +146,9 @@ OpenAPI schema:
 http://localhost:8000/api/schema/
 ```
 
-The Swagger UI shows the notification endpoints, request payloads, response schemas, and
-status codes.
+The Swagger UI shows notification endpoints, API key auth, request examples, response
+schemas, idempotency behavior, and common error responses such as `400`, `401`, `404`,
+and `429`.
 
 ### GraphQL Playground
 
@@ -219,7 +220,9 @@ mailhog   Local SMTP inbox
 | `GET` | `/api/docs/` | Swagger UI |
 | `GET` | `/metrics` | Prometheus metrics |
 | `GET` | `/graphql` | GraphiQL playground |
-| `GET` | `/healthz` | Health check |
+| `GET` | `/health/live` | Liveness check |
+| `GET` | `/health/ready` | Readiness check for DB/cache |
+| `GET` | `/healthz` | Backward-compatible liveness alias |
 | `GET` | `/admin/` | Django admin |
 
 ## Delivery Flow
@@ -408,7 +411,8 @@ docker compose logs -f worker
 Check service health:
 
 ```bash
-curl http://localhost:8000/healthz
+curl http://localhost:8000/health/live
+curl http://localhost:8000/health/ready
 ```
 
 ## Settings Profiles
@@ -427,6 +431,8 @@ DJANGO_SECRET_KEY=strong-secret
 DJANGO_ALLOWED_HOSTS=example.com,www.example.com
 DJANGO_CSRF_TRUSTED_ORIGINS=https://example.com,https://www.example.com
 NOTIFICATION_API_KEY=strong-service-api-key
+METRICS_API_KEY=strong-metrics-api-key
+ENABLE_GRAPHIQL=0
 LOG_LEVEL=INFO
 ```
 
@@ -451,8 +457,9 @@ Example log events:
 
 Prometheus metrics are exposed at:
 
-```text
-http://localhost:8000/metrics
+```bash
+curl http://localhost:8000/metrics \
+  -H "X-API-Key: dev-notification-api-key"
 ```
 
 Key counters:
@@ -541,12 +548,31 @@ For Twilio trial accounts, both the sender and recipient may need to be verified
 - Every provider attempt is stored in `DeliveryAttempt`.
 - Failed channels do not silently disappear; they are retained with error messages.
 - The notification status reflects the final delivery outcome.
+- Each channel is attempted up to the configured retry limit before fallback continues to
+  the next channel in `User.channel_priority`.
+- If all channels fail, the notification is marked `failed` and can be cloned for
+  redelivery from Django admin without deleting the original audit history.
+
+## Operating Notes
+
+- Use `/health/live` for process liveness checks.
+- Use `/health/ready` for readiness checks that depend on database and cache access.
+- Scrape `/metrics` with `X-API-Key`; use a dedicated `METRICS_API_KEY` in production.
+- Keep GraphiQL disabled in production with `ENABLE_GRAPHIQL=0`.
+- Rotate `NOTIFICATION_API_KEY`, `METRICS_API_KEY`, provider credentials, and Telegram
+  webhook secrets through environment variables or your secret manager.
+- Use structured JSON logs and `X-Request-ID` to correlate API requests with delivery
+  attempts in worker logs.
 
 ## Current Limitations
 
 - Provider credentials are configured through environment variables only.
 - Observability can be expanded with tracing and Sentry.
+- The current enqueueing flow uses `transaction.on_commit`; a durable outbox table would
+  further protect against broker publish failures after database commit.
 
 ## Roadmap
 
+- Add a durable `NotificationOutbox` dispatcher.
+- Split providers into explicit base/email/Twilio/Telegram modules with typed results.
 - Add provider-level integration tests with mocked external APIs.

@@ -27,8 +27,17 @@ jobs:
       - name: Lint
         run: ruff check .
 
+      - name: Format check
+        run: ruff format --check .
+
+      - name: Dependency audit
+        run: pip-audit -r requirements.txt
+
       - name: Check migrations
         run: python manage.py makemigrations --check --dry-run
 
       - name: Test
-        run: coverage run manage.py test notifications && coverage report
+        run: coverage run manage.py test notifications && coverage report --fail-under=80
+
+      - name: Docker build
+        run: docker build .
