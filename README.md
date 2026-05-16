@@ -17,6 +17,8 @@ auditable delivery history.
 ## Features
 
 - REST API for creating and retrieving notifications.
+- API key authentication for service-to-service REST access.
+- Scoped throttling for notification endpoints.
 - OpenAPI schema and Swagger UI for REST API exploration.
 - GraphQL mutation/query support through Strawberry.
 - Celery worker for asynchronous delivery.
@@ -138,8 +140,8 @@ mailhog   Local SMTP inbox
 
 | Method | Endpoint | Description |
 | --- | --- | --- |
-| `POST` | `/api/notifications/` | Create and enqueue a notification |
-| `GET` | `/api/notifications/{id}/` | Retrieve notification status |
+| `POST` | `/api/notifications/` | Create and enqueue a notification; requires `X-API-Key` |
+| `GET` | `/api/notifications/{id}/` | Retrieve notification status; requires `X-API-Key` |
 | `GET` | `/api/schema/` | OpenAPI schema |
 | `GET` | `/api/docs/` | Swagger UI |
 | `GET` | `/graphql` | GraphiQL playground |
@@ -230,6 +232,7 @@ Create a notification:
 ```bash
 curl -X POST http://localhost:8000/api/notifications/ \
   -H "Content-Type: application/json" \
+  -H "X-API-Key: dev-notification-api-key" \
   -d '{
     "user_id": 1,
     "subject": "Hello",
@@ -241,7 +244,8 @@ curl -X POST http://localhost:8000/api/notifications/ \
 Retrieve notification status:
 
 ```bash
-curl http://localhost:8000/api/notifications/1/
+curl http://localhost:8000/api/notifications/1/ \
+  -H "X-API-Key: dev-notification-api-key"
 ```
 
 ## GraphQL Example
@@ -340,6 +344,7 @@ DJANGO_SETTINGS_MODULE=notifier.settings.production
 DJANGO_SECRET_KEY=strong-secret
 DJANGO_ALLOWED_HOSTS=example.com,www.example.com
 DJANGO_CSRF_TRUSTED_ORIGINS=https://example.com,https://www.example.com
+NOTIFICATION_API_KEY=strong-service-api-key
 ```
 
 ## Provider Notes
@@ -382,14 +387,11 @@ For Twilio trial accounts, both the sender and recipient may need to be verified
 
 ## Current Limitations
 
-- Authentication and authorization are not implemented yet.
-- API throttling is not enabled yet.
 - Provider credentials are configured through environment variables only.
 - Observability can be expanded with structured logs, metrics, tracing, and Sentry.
 
 ## Roadmap
 
-- Add API authentication and request throttling.
 - Add structured JSON logging and request correlation IDs.
 - Add Prometheus metrics for sent, failed, and retried notifications.
 - Add provider-level integration tests with mocked external APIs.

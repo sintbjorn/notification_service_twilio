@@ -135,6 +135,12 @@ CELERY_TASK_ALWAYS_EAGER = env_bool("CELERY_TASK_ALWAYS_EAGER", False)
 REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    "DEFAULT_THROTTLE_CLASSES": [
+        "rest_framework.throttling.ScopedRateThrottle",
+    ],
+    "DEFAULT_THROTTLE_RATES": {
+        "notifications": os.getenv("NOTIFICATION_THROTTLE_RATE", "60/min"),
+    },
 }
 
 SPECTACULAR_SETTINGS = {
@@ -156,6 +162,8 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "fake-token")
 TWILIO_SID = os.getenv("TWILIO_SID", "sid")
 TWILIO_TOKEN = os.getenv("TWILIO_TOKEN", "token")
 TWILIO_FROM = os.getenv("TWILIO_FROM", "+10000000000")
+
+NOTIFICATION_API_KEY = os.getenv("NOTIFICATION_API_KEY", "")
 
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 X_FRAME_OPTIONS = "DENY"
