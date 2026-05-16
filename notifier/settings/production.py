@@ -16,6 +16,9 @@ if not ALLOWED_HOSTS:
 if not NOTIFICATION_API_KEY:  # noqa: F405
     raise ImproperlyConfigured("NOTIFICATION_API_KEY must be set in production.")
 
+if TELEGRAM_BOT_TOKEN != "fake-token" and not TELEGRAM_WEBHOOK_SECRET:  # noqa: F405
+    raise ImproperlyConfigured("TELEGRAM_WEBHOOK_SECRET must be set when Telegram is enabled.")
+
 CSRF_TRUSTED_ORIGINS = env_list("DJANGO_CSRF_TRUSTED_ORIGINS")  # noqa: F405
 
 SECURE_SSL_REDIRECT = env_bool("DJANGO_SECURE_SSL_REDIRECT", True)  # noqa: F405

@@ -21,6 +21,7 @@ auditable delivery history.
 - Scoped throttling for notification endpoints.
 - OpenAPI schema and Swagger UI for REST API exploration.
 - GraphQL mutation/query support through Strawberry.
+- Telegram webhook onboarding for automatic `chat_id` capture.
 - Celery worker for asynchronous delivery.
 - Redis as Celery broker/result backend and Django cache backend.
 - PostgreSQL persistence for users, notifications, and delivery attempts.
@@ -160,6 +161,7 @@ mailhog   Local SMTP inbox
 | --- | --- | --- |
 | `POST` | `/api/notifications/` | Create and enqueue a notification; requires `X-API-Key` |
 | `GET` | `/api/notifications/{id}/` | Retrieve notification status; requires `X-API-Key` |
+| `POST` | `/api/telegram/webhook/` | Telegram Bot API webhook for `/start` onboarding |
 | `GET` | `/api/schema/` | OpenAPI schema |
 | `GET` | `/api/docs/` | Swagger UI |
 | `GET` | `/graphql` | GraphiQL playground |
@@ -408,7 +410,35 @@ testing live SMS delivery.
 **Telegram**
 
 Telegram delivery calls the Telegram Bot API. A real `TELEGRAM_BOT_TOKEN` and a valid
-`telegram_chat_id` are required for live delivery.
+`telegram_chat_id` are required for live delivery. The project also includes a Telegram
+webhook that handles `/start` and stores the caller's `chat_id` automatically.
+
+## Telegram Bot Onboarding
+
+Create a bot through BotFather, then set:
+
+```text
+TELEGRAM_BOT_TOKEN=123456:real-token
+TELEGRAM_WEBHOOK_SECRET=strong-random-secret
+```
+
+Expose the local app with a public HTTPS tunnel such as ngrok or Cloudflare Tunnel, then
+register the webhook:
+
+```bash
+curl -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook" \
+  -d "url=https://your-public-url.example.com/api/telegram/webhook/" \
+  -d "secret_token=$TELEGRAM_WEBHOOK_SECRET"
+```
+
+Demo flow:
+
+1. Open the bot in Telegram.
+2. Send `/start`.
+3. The webhook creates or reuses a `User` with `telegram_chat_id`.
+4. Create a notification for that user.
+5. If earlier channels fail or Telegram is first in `channel_priority`, the message is
+   delivered through the bot.
 
 ## Twilio Configuration
 

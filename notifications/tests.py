@@ -1,3 +1,4 @@
+import json
 from unittest.mock import Mock, patch
 
 from celery.exceptions import Retry
@@ -178,3 +179,65 @@ class RequestIDMiddlewareTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response["X-Request-ID"])
+
+
+class TelegramWebhookTests(TestCase):
+    def telegram_update(self, chat_id="12345", text="/start"):
+        return {
+            "update_id": 1,
+            "message": {
+                "message_id": 10,
+                "chat": {"id": chat_id, "type": "private"},
+                "text": text,
+            },
+        }
+
+    @override_settings(TELEGRAM_WEBHOOK_SECRET="")
+    def test_start_creates_user_with_telegram_chat_id(self):
+        response = self.client.post(
+            "/api/telegram/webhook/",
+            json.dumps(self.telegram_update()),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(User.objects.count(), 1)
+        user = User.objects.get()
+        self.assertEqual(user.telegram_chat_id, "12345")
+        self.assertEqual(user.channel_priority, "telegram,email,sms")
+
+    @override_settings(TELEGRAM_WEBHOOK_SECRET="")
+    def test_start_reuses_existing_telegram_user(self):
+        User.objects.create(telegram_chat_id="12345")
+
+        response = self.client.post(
+            "/api/telegram/webhook/",
+            json.dumps(self.telegram_update()),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(User.objects.count(), 1)
+
+    @override_settings(TELEGRAM_WEBHOOK_SECRET="expected-secret")
+    def test_rejects_invalid_telegram_secret(self):
+        response = self.client.post(
+            "/api/telegram/webhook/",
+            json.dumps(self.telegram_update()),
+            content_type="application/json",
+            HTTP_X_TELEGRAM_BOT_API_SECRET_TOKEN="wrong-secret",
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(User.objects.count(), 0)
+
+    @override_settings(TELEGRAM_WEBHOOK_SECRET="")
+    def test_ignores_non_start_messages(self):
+        response = self.client.post(
+            "/api/telegram/webhook/",
+            json.dumps(self.telegram_update(text="hello")),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(User.objects.count(), 0)
