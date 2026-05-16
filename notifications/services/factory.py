@@ -1,5 +1,7 @@
 import os
+
 from .providers import EmailProvider, SmsProvider, TelegramProvider
+
 
 def get_provider(channel: str):
     if channel == "email":

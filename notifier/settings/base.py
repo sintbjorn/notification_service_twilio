@@ -4,13 +4,28 @@ from pathlib import Path
 import dj_database_url
 from dotenv import load_dotenv
 
-BASE_DIR = Path(__file__).resolve().parent.parent
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
 load_dotenv(BASE_DIR / ".env")
 
-SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev")
-DEBUG = os.getenv("DJANGO_DEBUG", "0") == "1"
 
-ALLOWED_HOSTS = ["*"]
+def env_bool(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.lower() in {"1", "true", "yes", "on"}
+
+
+def env_list(name: str, default: list[str] | None = None) -> list[str]:
+    value = os.getenv(name)
+    if not value:
+        return default or []
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-insecure-secret-key")
+DEBUG = False
+ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", ["localhost", "127.0.0.1"])
+CSRF_TRUSTED_ORIGINS = env_list("DJANGO_CSRF_TRUSTED_ORIGINS")
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -54,17 +69,37 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = "notifier.wsgi.application"
+ASGI_APPLICATION = "notifier.asgi.application"
+
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgres://{user}:{password}@{host}:{port}/{name}".format(
+        user=os.getenv("POSTGRES_USER", "notif"),
+        password=os.getenv("POSTGRES_PASSWORD", "notif"),
+        host=os.getenv("POSTGRES_HOST", "db"),
+        port=os.getenv("POSTGRES_PORT", "5432"),
+        name=os.getenv("POSTGRES_DB", "notif"),
+    ),
+)
 
 DATABASES = {
-    "default": dj_database_url.parse(
-        f"postgres://{os.getenv('POSTGRES_USER', 'notif')}:"
-        f"{os.getenv('POSTGRES_PASSWORD', 'notif')}@"
-        f"{os.getenv('POSTGRES_HOST', 'db')}:{os.getenv('POSTGRES_PORT', '5432')}/"
-        f"{os.getenv('POSTGRES_DB', 'notif')}"
-    )
+    "default": dj_database_url.parse(DATABASE_URL, conn_max_age=60),
 }
 
-AUTH_PASSWORD_VALIDATORS = []
+AUTH_PASSWORD_VALIDATORS = [
+    {
+        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",
+    },
+    {
+        "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
+    },
+    {
+        "NAME": "django.contrib.auth.password_validation.CommonPasswordValidator",
+    },
+    {
+        "NAME": "django.contrib.auth.password_validation.NumericPasswordValidator",
+    },
+]
 
 LANGUAGE_CODE = "en-us"
 TIME_ZONE = "UTC"
@@ -76,10 +111,13 @@ STATIC_ROOT = BASE_DIR / "static"
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
+REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
+CACHE_REDIS_URL = os.getenv("CACHE_REDIS_URL", REDIS_URL)
+
 CACHES = {
     "default": {
         "BACKEND": "django_redis.cache.RedisCache",
-        "LOCATION": os.getenv("REDIS_URL", "redis://redis:6379/1"),
+        "LOCATION": CACHE_REDIS_URL,
         "OPTIONS": {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",
         },
@@ -90,12 +128,10 @@ CACHEOPS = {
     "notifications.user": {"ops": "all", "timeout": 600},
 }
 
-# Celery
-CELERY_BROKER_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
-CELERY_RESULT_BACKEND = CELERY_BROKER_URL
-CELERY_TASK_ALWAYS_EAGER = False
+CELERY_BROKER_URL = REDIS_URL
+CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", REDIS_URL)
+CELERY_TASK_ALWAYS_EAGER = env_bool("CELERY_TASK_ALWAYS_EAGER", False)
 
-# DRF
 REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
@@ -108,7 +144,6 @@ SPECTACULAR_SETTINGS = {
     "SERVE_INCLUDE_SCHEMA": False,
 }
 
-# Email / Providers config
 SMTP_HOST = os.getenv("SMTP_HOST", "mailhog")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "1025"))
 SMTP_USER = os.getenv("SMTP_USER", "")
@@ -119,3 +154,6 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "fake-token")
 TWILIO_SID = os.getenv("TWILIO_SID", "sid")
 TWILIO_TOKEN = os.getenv("TWILIO_TOKEN", "token")
 TWILIO_FROM = os.getenv("TWILIO_FROM", "+10000000000")
+
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+X_FRAME_OPTIONS = "DENY"

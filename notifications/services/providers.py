@@ -1,7 +1,8 @@
 import smtplib
 from email.message import EmailMessage
+
 import requests
-import os
+
 
 class EmailProvider:
     def __init__(self, host, port, user, password, use_tls=True, sender=None):
@@ -30,6 +31,7 @@ class EmailProvider:
                 s.login(self.user, self.password)
             s.send_message(msg)
 
+
 class SmsProvider:
     def __init__(self, account_sid, auth_token, from_number):
         self.sid = account_sid
@@ -50,9 +52,11 @@ class SmsProvider:
             try:
                 info = resp.json()
                 msg = info.get("message") or resp.text
-            except Exception:
+            except Exception as exc:
                 msg = resp.text
+                raise RuntimeError(f"Twilio error: HTTP {resp.status_code} - {msg}") from exc
             raise RuntimeError(f"Twilio error: HTTP {resp.status_code} - {msg}")
+
 
 class TelegramProvider:
     def __init__(self, bot_token):
@@ -62,14 +66,19 @@ class TelegramProvider:
         if not chat_id:
             raise ValueError("Recipient chat_id is empty")
         url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
-        resp = requests.post(url, json={
-            "chat_id": chat_id,
-            "text": body
-        }, timeout=10)
+        resp = requests.post(
+            url,
+            json={
+                "chat_id": chat_id,
+                "text": body,
+            },
+            timeout=10,
+        )
         if not resp.ok:
             try:
                 info = resp.json()
                 msg = info.get("description") or resp.text
-            except Exception:
+            except Exception as exc:
                 msg = resp.text
+                raise RuntimeError(f"Telegram error: {msg}") from exc
             raise RuntimeError(f"Telegram error: {msg}")

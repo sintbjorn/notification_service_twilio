@@ -1,14 +1,18 @@
 from django.contrib import admin
-from .models import User, Notification, DeliveryAttempt
+
+from .models import DeliveryAttempt, Notification, User
+
 
 @admin.register(User)
 class UserAdmin(admin.ModelAdmin):
     list_display = ("id", "email", "phone", "telegram_chat_id", "channel_priority")
 
+
 @admin.register(Notification)
 class NotificationAdmin(admin.ModelAdmin):
     list_display = ("id", "user", "subject", "status", "created_at", "idempotency_key")
     list_filter = ("status",)
+
 
 @admin.register(DeliveryAttempt)
 class DeliveryAttemptAdmin(admin.ModelAdmin):

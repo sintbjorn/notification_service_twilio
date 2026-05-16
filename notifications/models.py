@@ -1,6 +1,14 @@
 from django.db import models
 from django.utils import timezone
 
+
+class NotificationStatus(models.TextChoices):
+    QUEUED = "queued", "Queued"
+    PROCESSING = "processing", "Processing"
+    SENT = "sent", "Sent"
+    FAILED = "failed", "Failed"
+
+
 class User(models.Model):
     email = models.EmailField(blank=True, null=True)
     phone = models.CharField(max_length=32, blank=True, null=True)
@@ -14,20 +22,29 @@ class User(models.Model):
     def channels(self):
         return [c.strip() for c in self.channel_priority.split(",") if c.strip()]
 
+
 class Notification(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     subject = models.CharField(max_length=200, blank=True, default="")
     message = models.TextField()
     created_at = models.DateTimeField(default=timezone.now)
-    # queued/sent/failed
-    status = models.CharField(max_length=16, default="queued")
+    status = models.CharField(
+        max_length=16,
+        choices=NotificationStatus.choices,
+        default=NotificationStatus.QUEUED,
+    )
     idempotency_key = models.CharField(max_length=64, blank=True, null=True, unique=True)
 
     def __str__(self):
         return f"Notification#{self.pk} -> {self.user}"
 
+
 class DeliveryAttempt(models.Model):
-    notification = models.ForeignKey(Notification, on_delete=models.CASCADE, related_name="attempts")
+    notification = models.ForeignKey(
+        Notification,
+        on_delete=models.CASCADE,
+        related_name="attempts",
+    )
     channel = models.CharField(max_length=32)  # email/sms/telegram
     success = models.BooleanField(default=False)
     error = models.TextField(blank=True, default="")

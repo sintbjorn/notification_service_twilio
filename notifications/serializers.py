@@ -1,5 +1,7 @@
 from rest_framework import serializers
+
 from .models import Notification, User
+
 
 class NotificationCreateSerializer(serializers.Serializer):
     user_id = serializers.IntegerField()
@@ -9,6 +11,7 @@ class NotificationCreateSerializer(serializers.Serializer):
 
     def create(self, validated_data):
         from .services.producer import enqueue_notification
+
         user = User.objects.get(pk=validated_data["user_id"])
         return enqueue_notification(
             user=user,
@@ -16,6 +19,7 @@ class NotificationCreateSerializer(serializers.Serializer):
             message=validated_data["message"],
             idempotency_key=(validated_data.get("idempotency_key") or None),
         )
+
 
 class NotificationDetailSerializer(serializers.ModelSerializer):
     class Meta:

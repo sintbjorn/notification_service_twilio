@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: notif
+          POSTGRES_USER: notif
+          POSTGRES_PASSWORD: notif
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U notif -d notif"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DJANGO_SECRET_KEY: ci-secret
+      DJANGO_DEBUG: "0"
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: notif
+      POSTGRES_USER: notif
+      POSTGRES_PASSWORD: notif
+      REDIS_URL: redis://localhost:6379/0
+      SMTP_HOST: localhost
+      SMTP_PORT: "1025"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && pip install -r requirements-dev.txt
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Check migrations
+        run: python manage.py makemigrations --check --dry-run
+
+      - name: Test
+        run: coverage run manage.py test notifications && coverage report
