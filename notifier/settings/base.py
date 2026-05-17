@@ -128,9 +128,11 @@ CACHES = {
 CACHEOPS = {
     "notifications.user": {"ops": "all", "timeout": 600},
 }
+CACHEOPS_REDIS = CACHE_REDIS_URL
 
 CELERY_BROKER_URL = REDIS_URL
 CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", REDIS_URL)
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 CELERY_TASK_ALWAYS_EAGER = env_bool("CELERY_TASK_ALWAYS_EAGER", False)
 
 REST_FRAMEWORK = {
@@ -153,7 +155,7 @@ SPECTACULAR_SETTINGS = {
     "SERVE_INCLUDE_SCHEMA": False,
 }
 
-SMTP_HOST = os.getenv("SMTP_HOST", "mailhog")
+SMTP_HOST = os.getenv("SMTP_HOST", "mailpit")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "1025"))
 SMTP_USER = os.getenv("SMTP_USER", "")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")

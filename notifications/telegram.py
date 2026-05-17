@@ -27,7 +27,7 @@ def _parse_command(text: str) -> tuple[str, str]:
 
 def _reply(chat_id: str, text: str) -> None:
     bot_token = getattr(settings, "TELEGRAM_BOT_TOKEN", "")
-    if not bot_token or bot_token == "fake-token":
+    if not bot_token or bot_token.startswith("fake"):
         logger.info("telegram.reply_skipped", extra={"telegram_chat_id": chat_id})
         return
     TelegramProvider(bot_token).send(chat_id, text)

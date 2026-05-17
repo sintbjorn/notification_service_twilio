@@ -21,7 +21,4 @@ RUN useradd --create-home --shell /usr/sbin/nologin appuser \
 
 USER appuser
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD python -c "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/health/live', timeout=3).read()"
-
 CMD ["gunicorn", "notifier.wsgi:application", "-b", "0.0.0.0:8000", "--workers", "3"]

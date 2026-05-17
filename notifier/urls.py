@@ -1,5 +1,6 @@
 from django.contrib import admin
 from django.urls import include, path
+from django.views.generic import RedirectView
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from rest_framework.routers import DefaultRouter
 
@@ -13,9 +14,15 @@ router = DefaultRouter()
 router.register("notifications", NotificationViewSet, basename="notification")
 
 urlpatterns = [
+    path("", RedirectView.as_view(pattern_name="swagger-ui", permanent=False), name="root"),
     path("admin/", admin.site.urls),
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
+    path(
+        "api/schema/swagger-ui/",
+        SpectacularSwaggerView.as_view(url_name="schema"),
+        name="swagger-ui-alias",
+    ),
     path("api/", include(router.urls)),
     path("metrics", metrics_view, name="metrics"),
     path("webhooks/telegram/", telegram_webhook, name="telegram-webhook"),

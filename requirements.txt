@@ -6,7 +6,7 @@ strawberry-graphql-django==0.44.2
 celery==5.4.0
 redis==5.0.7
 django-redis==5.4.0
-cacheops==7.0.1
+django-cacheops==7.0.1
 psycopg2-binary==2.9.9
 gunicorn==22.0.0
 python-dotenv==1.0.1

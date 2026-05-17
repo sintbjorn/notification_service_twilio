@@ -51,4 +51,9 @@ class DeliveryAttempt(models.Model):
     created_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
-        indexes = [models.Index(fields=["notification", "channel", "-created_at"])]
+        indexes = [
+            models.Index(
+                fields=["notification", "channel", "-created_at"],
+                name="notificatio_notific_66e0c2_idx",
+            )
+        ]

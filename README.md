@@ -42,7 +42,7 @@ auditable delivery history.
 - Prometheus counters for notification and delivery attempt outcomes.
 - Docker Compose setup for local development.
 - GitHub Actions CI for linting, migration checks, and tests.
-- Mailhog integration for local email testing.
+- Mailpit integration for local email testing.
 
 ## Tech Stack
 
@@ -97,7 +97,7 @@ flowchart LR
     redis[("Redis<br/>Broker + Cache")]
     worker["Celery Worker<br/>Retry + Fallback"]
     prometheus["Prometheus<br/>/metrics"]
-    mailhog["Mailhog<br/>Local SMTP"]
+    mailpit["Mailpit<br/>Local SMTP"]
     twilio["Twilio API<br/>SMS"]
     telegram["Telegram Bot API"]
 
@@ -108,7 +108,7 @@ flowchart LR
     prometheus -->|"scrape"| django
     redis -->|"Task message"| worker
     worker -->|"Read/update status"| db
-    worker -->|"Email"| mailhog
+    worker -->|"Email"| mailpit
     worker -->|"SMS"| twilio
     worker -->|"Telegram"| telegram
 ```
@@ -125,7 +125,7 @@ Core components:
 - **Redis** acts as Celery broker/result backend and cache backend.
 - **Celery worker** performs provider calls outside the request path, with retry and
   fallback behavior.
-- **Providers** deliver messages through SMTP/Mailhog, Twilio SMS, and Telegram Bot API.
+- **Providers** deliver messages through SMTP/Mailpit, Twilio SMS, and Telegram Bot API.
 
 ## Visual Proof
 
@@ -161,9 +161,9 @@ http://localhost:8000/graphql
 It can be used to run the `createNotification` mutation and inspect notification status
 queries without an external GraphQL client.
 
-### Mailhog
+### Mailpit
 
-Mailhog captures local SMTP traffic and proves that the email delivery path works without
+Mailpit captures local SMTP traffic and proves that the email delivery path works without
 sending real messages:
 
 ```text
@@ -171,7 +171,7 @@ http://localhost:8025
 ```
 
 After creating a notification for a user with an email address, the delivered email should
-appear in the Mailhog inbox.
+appear in the Mailpit inbox.
 
 ### Django Admin
 
@@ -206,8 +206,12 @@ beat      Celery beat
 db        PostgreSQL
 redis     Redis broker/cache
 nginx     Reverse proxy
-mailhog   Local SMTP inbox
+mailpit   Local SMTP inbox
 ```
+
+PostgreSQL and Redis use named Docker volumes (`postgres_data`, `redis_data`) so local
+state survives container recreation. Use `docker compose down --volumes` only when you
+intentionally want a clean database and cache.
 
 ### API Endpoints
 
@@ -290,16 +294,23 @@ Run migrations:
 docker compose exec web python manage.py migrate
 ```
 
-Create a test user:
+Create demo data and enqueue a notification through the real delivery pipeline:
 
 ```bash
-docker compose exec web python manage.py shell -c "from notifications.models import User; User.objects.create(email='me@example.com', phone='+420123456789', telegram_chat_id='12345')"
+docker compose exec web python manage.py seed_demo
 ```
 
-Mailhog is available at:
+Mailpit is available at:
 
 ```text
 http://localhost:8025
+```
+
+The command prints the created user ID, notification ID, idempotency key, and the main
+inspection URLs. Pass a fixed key to demonstrate deduplication:
+
+```bash
+docker compose exec web python manage.py seed_demo --idempotency-key=portfolio-demo-001
 ```
 
 ## REST API Example
@@ -370,7 +381,7 @@ The default development profile is `notifier.settings.local`. Docker Compose set
 the web, worker, and beat containers.
 
 Run tests with the Docker test override. This avoids binding PostgreSQL, Redis, and
-Mailhog ports to the host, which makes the command safer on machines where those ports
+Mailpit ports to the host, which makes the command safer on machines where those ports
 are already in use.
 
 ```bash
@@ -487,7 +498,7 @@ delivery_attempts_total{channel,status}
 
 **Email**
 
-Email is sent through SMTP. In local Docker development, Mailhog captures messages so
+Email is sent through SMTP. In local Docker development, Mailpit captures messages so
 email delivery can be tested without sending real email.
 
 **SMS**

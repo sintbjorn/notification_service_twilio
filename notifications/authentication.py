@@ -9,6 +9,7 @@ from rest_framework import authentication, exceptions
 @dataclass(frozen=True)
 class ServicePrincipal:
     name: str = "notification-service-client"
+    pk: str = "notification-service-client"
     is_authenticated: bool = True
 
 

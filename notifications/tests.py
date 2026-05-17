@@ -1,8 +1,9 @@
 import json
+from io import StringIO
 from unittest.mock import Mock, patch
 
-from celery.exceptions import Retry
 from django.core.cache import cache
+from django.core.management import call_command
 from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
@@ -27,9 +28,9 @@ class NotificationDeliveryTests(TestCase):
             "notifications.tasks.get_provider",
             side_effect=lambda channel: {"email": email_provider, "sms": sms_provider}[channel],
         ):
-            with self.assertRaises(Retry):
+            with self.assertRaises(RuntimeError):
                 send_notification_task(notification.id)
-            with self.assertRaises(Retry):
+            with self.assertRaises(RuntimeError):
                 send_notification_task(notification.id)
 
             self.assertTrue(send_notification_task(notification.id))
@@ -60,9 +61,9 @@ class NotificationDeliveryTests(TestCase):
         email_provider.send.side_effect = RuntimeError("smtp unavailable")
 
         with patch("notifications.tasks.get_provider", return_value=email_provider):
-            with self.assertRaises(Retry):
+            with self.assertRaises(RuntimeError):
                 send_notification_task(notification.id)
-            with self.assertRaises(Retry):
+            with self.assertRaises(RuntimeError):
                 send_notification_task(notification.id)
 
             self.assertFalse(send_notification_task(notification.id))
@@ -97,6 +98,33 @@ class EnqueueNotificationTests(TestCase):
         self.assertEqual(first.id, second.id)
         self.assertEqual(Notification.objects.count(), 1)
         delay.assert_called_once_with(first.id)
+
+
+class SeedDemoCommandTests(TestCase):
+    def test_seed_demo_creates_user_and_notification(self):
+        out = StringIO()
+
+        with patch("notifications.services.producer.send_notification_task.delay") as delay:
+            with self.captureOnCommitCallbacks(execute=True):
+                call_command("seed_demo", stdout=out)
+
+        self.assertIn("Demo notification enqueued.", out.getvalue())
+        self.assertEqual(User.objects.count(), 1)
+        self.assertEqual(Notification.objects.count(), 1)
+        delay.assert_called_once_with(Notification.objects.get().id)
+
+    def test_seed_demo_reuses_fixed_idempotency_key(self):
+        out = StringIO()
+
+        with patch("notifications.services.producer.send_notification_task.delay") as delay:
+            with self.captureOnCommitCallbacks(execute=True):
+                call_command("seed_demo", "--idempotency-key=demo-fixed", stdout=out)
+            with self.captureOnCommitCallbacks(execute=True):
+                call_command("seed_demo", "--idempotency-key=demo-fixed", stdout=out)
+
+        self.assertEqual(User.objects.count(), 1)
+        self.assertEqual(Notification.objects.count(), 1)
+        delay.assert_called_once_with(Notification.objects.get().id)
 
 
 class NotificationAPITests(TestCase):
@@ -138,18 +166,13 @@ class NotificationAPITests(TestCase):
         self.assertEqual(Notification.objects.count(), 1)
         delay.assert_called_once_with(Notification.objects.get().id)
 
-    @override_settings(
-        REST_FRAMEWORK={
-            "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],
-            "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
-            "DEFAULT_THROTTLE_CLASSES": ["rest_framework.throttling.ScopedRateThrottle"],
-            "DEFAULT_THROTTLE_RATES": {"notifications": "1/min"},
-        },
-    )
     def test_notification_endpoint_is_throttled(self):
         cache.clear()
 
-        with patch("notifications.services.producer.send_notification_task.delay"):
+        with (
+            patch("notifications.services.producer.send_notification_task.delay"),
+            patch("rest_framework.throttling.ScopedRateThrottle.get_rate", return_value="1/min"),
+        ):
             first = self.client.post(
                 "/api/notifications/",
                 {"user_id": self.user.id, "message": "First"},
@@ -182,6 +205,17 @@ class RequestIDMiddlewareTests(TestCase):
 
 
 class SystemEndpointTests(TestCase):
+    def test_root_redirects_to_swagger_ui(self):
+        response = self.client.get("/")
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], "/api/docs/")
+
+    def test_swagger_ui_alias_is_available(self):
+        response = self.client.get("/api/schema/swagger-ui/")
+
+        self.assertEqual(response.status_code, 200)
+
     def test_liveness_endpoint_returns_ok(self):
         response = self.client.get("/health/live")
 

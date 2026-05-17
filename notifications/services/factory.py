@@ -6,7 +6,7 @@ from .providers import EmailProvider, SmsProvider, TelegramProvider
 def get_provider(channel: str):
     if channel == "email":
         return EmailProvider(
-            host=os.getenv("SMTP_HOST", "mailhog"),
+            host=os.getenv("SMTP_HOST", "mailpit"),
             port=int(os.getenv("SMTP_PORT", "1025")),
             user=os.getenv("SMTP_USER", ""),
             password=os.getenv("SMTP_PASSWORD", ""),
