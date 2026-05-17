@@ -259,7 +259,11 @@ notifications/
   services/
     producer.py             # Idempotent enqueueing
     factory.py              # Provider factory
-    providers.py            # Email, SMS, Telegram providers
+    providers/
+      base.py               # ProviderResult, ProviderError, provider protocol
+      email.py              # SMTP provider
+      sms_twilio.py         # Twilio SMS provider
+      telegram.py           # Telegram Bot API provider
 
 notifier/
   settings/
@@ -495,6 +499,11 @@ delivery_attempts_total{channel,status}
   service key is simpler and more realistic than end-user login flows.
 
 ## Provider Notes
+
+Providers share a small contract: successful sends return `ProviderResult`, and delivery
+failures raise `ProviderError` with an explicit `retryable` flag. Retryable failures are
+retried with Celery backoff; non-retryable failures are audited once and the worker moves
+to the next fallback channel.
 
 **Email**
 

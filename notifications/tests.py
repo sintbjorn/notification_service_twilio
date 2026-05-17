@@ -9,6 +9,7 @@ from rest_framework.test import APIClient
 
 from notifications.models import DeliveryAttempt, Notification, NotificationStatus, User
 from notifications.services.producer import enqueue_notification
+from notifications.services.providers import ProviderError
 from notifications.tasks import send_notification_task
 
 
@@ -73,6 +74,44 @@ class NotificationDeliveryTests(TestCase):
         self.assertEqual(
             DeliveryAttempt.objects.filter(notification=notification, success=False).count(),
             3,
+        )
+
+    def test_non_retryable_provider_error_falls_back_without_retrying_channel(self):
+        user = User.objects.create(phone="+15551234567", channel_priority="email,sms")
+        notification = Notification.objects.create(user=user, subject="Hello", message="Body")
+        email_provider = Mock()
+        email_provider.send.side_effect = ProviderError(
+            "Recipient email is empty",
+            retryable=False,
+            code="missing_email",
+        )
+        sms_provider = Mock()
+
+        with patch(
+            "notifications.tasks.get_provider",
+            side_effect=lambda channel: {"email": email_provider, "sms": sms_provider}[channel],
+        ):
+            self.assertTrue(send_notification_task(notification.id))
+
+        notification.refresh_from_db()
+        self.assertEqual(notification.status, NotificationStatus.SENT)
+        email_provider.send.assert_called_once()
+        sms_provider.send.assert_called_once()
+        self.assertEqual(
+            DeliveryAttempt.objects.filter(
+                notification=notification,
+                channel="email",
+                success=False,
+            ).count(),
+            1,
+        )
+        self.assertEqual(
+            DeliveryAttempt.objects.filter(
+                notification=notification,
+                channel="sms",
+                success=True,
+            ).count(),
+            1,
         )
 
 
