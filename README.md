@@ -28,6 +28,8 @@ auditable delivery history.
 - [Technical Documentation](docs/TECHNICAL_DOCUMENTATION.md) - complete engineering
   handbook with architecture, flows, configuration, observability, Docker runtime,
   troubleshooting, and a file-by-file project reference.
+- [Demo Script](docs/DEMO_SCRIPT.md) - step-by-step portfolio walkthrough for Swagger,
+  Mailpit, admin, health checks, secured metrics, idempotency, and outbox recovery.
 
 ## Features
 
@@ -310,19 +312,19 @@ cp .env.example .env
 Start the stack:
 
 ```bash
-docker compose up --build
+make rebuild
 ```
 
 Run migrations:
 
 ```bash
-docker compose exec web python manage.py migrate
+make migrate
 ```
 
 Create demo data and enqueue a notification through the real delivery pipeline:
 
 ```bash
-docker compose exec web python manage.py seed_demo
+make demo
 ```
 
 Mailpit is available at:
@@ -335,7 +337,7 @@ The command prints the created user ID, notification ID, idempotency key, and th
 inspection URLs. Pass a fixed key to demonstrate deduplication:
 
 ```bash
-docker compose exec web python manage.py seed_demo --idempotency-key=portfolio-demo-001
+make demo-idempotent
 ```
 
 ## REST API Example
