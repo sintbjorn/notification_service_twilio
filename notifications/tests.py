@@ -3,6 +3,7 @@ from datetime import timedelta
 from io import StringIO
 from unittest.mock import Mock, patch
 
+from django.conf import settings
 from django.core.cache import cache
 from django.core.management import call_command
 from django.test import TestCase, override_settings
@@ -178,6 +179,56 @@ class EnqueueNotificationTests(TestCase):
         self.assertEqual(outbox.status, NotificationOutboxStatus.FAILED)
         self.assertEqual(outbox.attempts, 1)
         self.assertIn("broker down", outbox.last_error)
+
+    def test_periodic_outbox_recovery_publishes_failed_rows(self):
+        user = User.objects.create(email="user@example.com")
+        notification = Notification.objects.create(user=user, subject="Hello", message="Body")
+        outbox = NotificationOutbox.objects.create(
+            notification=notification,
+            status=NotificationOutboxStatus.FAILED,
+            attempts=2,
+            last_error="broker down",
+        )
+
+        with patch("notifications.tasks.send_notification_task.delay") as delay:
+            published = dispatch_notification_outbox_task(limit=100)
+
+        outbox.refresh_from_db()
+        self.assertEqual(published, 1)
+        self.assertEqual(outbox.status, NotificationOutboxStatus.PUBLISHED)
+        self.assertEqual(outbox.attempts, 3)
+        self.assertEqual(outbox.last_error, "")
+        delay.assert_called_once_with(notification.id)
+
+    def test_periodic_outbox_recovery_respects_batch_limit(self):
+        user = User.objects.create(email="user@example.com")
+        first = Notification.objects.create(user=user, subject="First", message="Body")
+        second = Notification.objects.create(user=user, subject="Second", message="Body")
+        first_outbox = NotificationOutbox.objects.create(notification=first)
+        second_outbox = NotificationOutbox.objects.create(notification=second)
+
+        with patch("notifications.tasks.send_notification_task.delay") as delay:
+            published = dispatch_notification_outbox_task(limit=1)
+
+        first_outbox.refresh_from_db()
+        second_outbox.refresh_from_db()
+        self.assertEqual(published, 1)
+        self.assertEqual(first_outbox.status, NotificationOutboxStatus.PUBLISHED)
+        self.assertEqual(second_outbox.status, NotificationOutboxStatus.PENDING)
+        delay.assert_called_once_with(first.id)
+
+    def test_outbox_recovery_is_registered_in_celery_beat_schedule(self):
+        schedule = settings.CELERY_BEAT_SCHEDULE["notification-outbox-recovery"]
+
+        self.assertEqual(schedule["task"], "notifications.tasks.dispatch_notification_outbox_task")
+        self.assertEqual(
+            schedule["schedule"],
+            settings.CELERY_OUTBOX_DISPATCH_INTERVAL_SECONDS,
+        )
+        self.assertEqual(
+            schedule["kwargs"],
+            {"limit": settings.CELERY_OUTBOX_DISPATCH_BATCH_SIZE},
+        )
 
 
 class SeedDemoCommandTests(TestCase):

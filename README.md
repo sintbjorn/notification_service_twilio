@@ -517,7 +517,7 @@ notification_outbox_oldest_pending_age_seconds
   `NotificationOutbox` row is committed, preventing workers from loading missing data.
 - **Durable outbox**: notification creation and task-publish intent are stored in the same
   database transaction. If broker publishing fails, the outbox row remains recoverable via
-  the dispatcher task or `python manage.py dispatch_outbox`.
+  the periodic Celery beat dispatcher or `python manage.py dispatch_outbox`.
 - **Idempotency key**: clients can safely retry `POST /api/notifications/` without
   creating duplicate notifications or duplicate delivery jobs.
 - **Delivery attempts audit trail**: each provider attempt is persisted for debugging,
@@ -591,8 +591,10 @@ For Twilio trial accounts, both the sender and recipient may need to be verified
 
 - Tasks are enqueued only after the database transaction commits.
 - `NotificationOutbox` stores durable publish intent before any Celery task is sent.
-- If task publishing fails, run `python manage.py dispatch_outbox` to republish pending or
-  failed outbox rows.
+- Celery beat runs periodic outbox recovery and republishes pending or failed outbox rows.
+- If automatic recovery needs to be forced, run `python manage.py dispatch_outbox`.
+- The dispatcher locks each outbox row before publishing, so overlapping immediate and
+  periodic dispatchers do not publish the same row concurrently.
 - `notification_outbox_oldest_pending_age_seconds` should normally be `0`; a growing
   value means outbox rows are waiting for dispatch or broker recovery.
 - Reusing an `idempotency_key` returns the existing notification instead of creating

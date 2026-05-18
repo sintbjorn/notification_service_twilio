@@ -107,7 +107,7 @@ flowchart LR
 | PostgreSQL | Durable storage for users, notifications, outbox rows, delivery attempts |
 | Redis | Celery broker, Celery result backend, Django cache |
 | Celery worker | Executes notification delivery outside the HTTP request path |
-| Celery beat | Reserved for scheduled tasks and future periodic recovery jobs |
+| Celery beat | Runs periodic outbox recovery for pending or failed publish rows |
 | Nginx | Reverse proxy in the Docker Compose stack |
 | Mailpit | Local SMTP sink and web inbox for email delivery verification |
 | Prometheus client | Exposes counters and gauges through `/metrics` |
@@ -182,6 +182,10 @@ The row is created in the same database transaction as the notification. This pr
 system from losing the publish intent if the HTTP request succeeds but Celery publishing
 fails.
 
+Outbox rows are also recovered periodically by Celery beat. This means the system does not
+depend only on the immediate `transaction.on_commit()` dispatcher: if that publish attempt
+is missed or fails, a scheduled recovery task will retry the row later.
+
 ### DeliveryAttempt
 
 Stores an audit record for each provider attempt.
@@ -225,17 +229,32 @@ This is intentional: REST and GraphQL are API surfaces over one domain service.
 
 1. `NotificationOutbox` row exists with `pending` or `failed` status.
 2. `dispatch_notification_outbox_task` selects one row or a batch.
-3. The task calls `send_notification_task.delay(notification_id)`.
-4. If publish succeeds:
+3. Before publishing, it locks each candidate row with `select_for_update(skip_locked=True)`.
+   This prevents overlapping immediate and periodic dispatchers from publishing the same
+   row concurrently.
+4. The task calls `send_notification_task.delay(notification_id)`.
+5. If publish succeeds:
    - outbox `attempts` increments,
    - status becomes `published`,
    - `published_at` is set,
    - `notification_outbox_publish_attempts_total{status="published"}` increments.
-5. If publish fails:
+6. If publish fails:
    - outbox `attempts` increments,
    - status becomes `failed`,
    - `last_error` is recorded,
    - `notification_outbox_publish_attempts_total{status="failed"}` increments.
+
+Periodic recovery is configured through `CELERY_BEAT_SCHEDULE`:
+
+```text
+notification-outbox-recovery -> notifications.tasks.dispatch_notification_outbox_task
+```
+
+Default schedule:
+
+```text
+every 60 seconds, limit 100 rows per run
+```
 
 Manual recovery:
 
@@ -395,6 +414,8 @@ Production requires `TELEGRAM_WEBHOOK_SECRET` when a real Telegram token is conf
 | `CACHE_REDIS_URL` | Django/cacheops Redis URL | `REDIS_URL` |
 | `CELERY_RESULT_BACKEND` | Celery result backend | `REDIS_URL` |
 | `CELERY_TASK_ALWAYS_EAGER` | Execute tasks synchronously | `false` |
+| `CELERY_OUTBOX_DISPATCH_INTERVAL_SECONDS` | Periodic outbox recovery interval | `60` |
+| `CELERY_OUTBOX_DISPATCH_BATCH_SIZE` | Max outbox rows per recovery run | `100` |
 | `NOTIFICATION_API_KEY` | Service API key | `dev-notification-api-key` in local |
 | `METRICS_API_KEY` | Metrics API key | empty, falls back to notification key |
 | `NOTIFICATION_THROTTLE_RATE` | DRF throttle rate | `60/min` |
@@ -801,7 +822,8 @@ Inspect:
 - Worker logs.
 - `/metrics` outbox gauges.
 
-Run manual outbox dispatch:
+Automatic recovery runs through Celery beat. Force manual outbox dispatch when you want an
+immediate recovery attempt:
 
 ```bash
 docker compose exec web python manage.py dispatch_outbox
@@ -825,7 +847,6 @@ PostgreSQL and Redis are intentionally internal to avoid conflicts with other pr
 The service is already portfolio-ready, but these improvements would push it closer to a
 real production platform:
 
-- Add periodic Celery beat recovery for outbox rows.
 - Add provider-level integration tests with mocked Twilio and Telegram APIs.
 - Add OpenTelemetry tracing for API requests and Celery tasks.
 - Add Sentry or another error monitoring backend.

@@ -15,6 +15,13 @@ def env_bool(name: str, default: bool = False) -> bool:
     return value.lower() in {"1", "true", "yes", "on"}
 
 
+def env_int(name: str, default: int) -> int:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return int(value)
+
+
 def env_list(name: str, default: list[str] | None = None) -> list[str]:
     value = os.getenv(name)
     if not value:
@@ -134,6 +141,19 @@ CELERY_BROKER_URL = REDIS_URL
 CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", REDIS_URL)
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 CELERY_TASK_ALWAYS_EAGER = env_bool("CELERY_TASK_ALWAYS_EAGER", False)
+CELERY_OUTBOX_DISPATCH_INTERVAL_SECONDS = env_int(
+    "CELERY_OUTBOX_DISPATCH_INTERVAL_SECONDS",
+    60,
+)
+CELERY_OUTBOX_DISPATCH_BATCH_SIZE = env_int("CELERY_OUTBOX_DISPATCH_BATCH_SIZE", 100)
+CELERY_BEAT_SCHEDULE = {
+    "notification-outbox-recovery": {
+        "task": "notifications.tasks.dispatch_notification_outbox_task",
+        "schedule": CELERY_OUTBOX_DISPATCH_INTERVAL_SECONDS,
+        "kwargs": {"limit": CELERY_OUTBOX_DISPATCH_BATCH_SIZE},
+        "options": {"expires": CELERY_OUTBOX_DISPATCH_INTERVAL_SECONDS},
+    },
+}
 
 REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],

@@ -38,49 +38,61 @@ def schedule_outbox_dispatch(outbox_id: int) -> None:
 
 @shared_task(bind=True, max_retries=None)
 def dispatch_notification_outbox_task(self, outbox_id: int | None = None, limit: int = 100):
-    queryset = NotificationOutbox.objects.select_related("notification").exclude(
-        status=NotificationOutboxStatus.PUBLISHED,
-    )
     if outbox_id is not None:
-        queryset = queryset.filter(pk=outbox_id)
+        outbox_ids = [outbox_id]
     else:
-        queryset = queryset.order_by("created_at")[:limit]
+        outbox_ids = list(
+            NotificationOutbox.objects.exclude(status=NotificationOutboxStatus.PUBLISHED)
+            .order_by("created_at")
+            .values_list("id", flat=True)[:limit],
+        )
 
     published = 0
-    for outbox in queryset:
-        try:
-            send_notification_task.delay(outbox.notification_id)
-        except Exception as exc:
-            notification_outbox_publish_attempts_total.labels(status="failed").inc()
+    for candidate_id in outbox_ids:
+        with transaction.atomic():
+            outbox = (
+                NotificationOutbox.objects.select_for_update(skip_locked=True)
+                .select_related("notification")
+                .exclude(status=NotificationOutboxStatus.PUBLISHED)
+                .filter(pk=candidate_id)
+                .first()
+            )
+            if outbox is None:
+                continue
+
+            try:
+                send_notification_task.delay(outbox.notification_id)
+            except Exception as exc:
+                notification_outbox_publish_attempts_total.labels(status="failed").inc()
+                NotificationOutbox.objects.filter(pk=outbox.pk).update(
+                    attempts=F("attempts") + 1,
+                    status=NotificationOutboxStatus.FAILED,
+                    last_error=str(exc),
+                    updated_at=timezone.now(),
+                )
+                logger.exception(
+                    "notification.outbox_publish_failed",
+                    extra={
+                        "outbox_id": outbox.id,
+                        "notification_id": outbox.notification_id,
+                        "error": str(exc),
+                    },
+                )
+                continue
+
+            notification_outbox_publish_attempts_total.labels(status="published").inc()
             NotificationOutbox.objects.filter(pk=outbox.pk).update(
                 attempts=F("attempts") + 1,
-                status=NotificationOutboxStatus.FAILED,
-                last_error=str(exc),
+                status=NotificationOutboxStatus.PUBLISHED,
+                last_error="",
                 updated_at=timezone.now(),
+                published_at=timezone.now(),
             )
-            logger.exception(
-                "notification.outbox_publish_failed",
-                extra={
-                    "outbox_id": outbox.id,
-                    "notification_id": outbox.notification_id,
-                    "error": str(exc),
-                },
+            published += 1
+            logger.info(
+                "notification.outbox_published",
+                extra={"outbox_id": outbox.id, "notification_id": outbox.notification_id},
             )
-            continue
-
-        notification_outbox_publish_attempts_total.labels(status="published").inc()
-        NotificationOutbox.objects.filter(pk=outbox.pk).update(
-            attempts=F("attempts") + 1,
-            status=NotificationOutboxStatus.PUBLISHED,
-            last_error="",
-            updated_at=timezone.now(),
-            published_at=timezone.now(),
-        )
-        published += 1
-        logger.info(
-            "notification.outbox_published",
-            extra={"outbox_id": outbox.id, "notification_id": outbox.notification_id},
-        )
 
     return published
 
