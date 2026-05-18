@@ -30,6 +30,10 @@ auditable delivery history.
   troubleshooting, and a file-by-file project reference.
 - [Demo Script](docs/DEMO_SCRIPT.md) - step-by-step portfolio walkthrough for Swagger,
   Mailpit, admin, health checks, secured metrics, idempotency, and outbox recovery.
+- [API Examples](docs/API_EXAMPLES.md) - copy-paste REST, GraphQL, webhook, health,
+  metrics, and outbox recovery examples.
+- [Production Checklist](docs/PRODUCTION_CHECKLIST.md) - deployment, security,
+  observability, backup, rollback, and smoke-test checklist.
 
 ## Features
 

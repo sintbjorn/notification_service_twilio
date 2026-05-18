@@ -650,6 +650,8 @@ docker compose -p notification_service_twilio_test \
 | `README.md` | Public project presentation, setup guide, architecture summary, demo surfaces |
 | `docs/TECHNICAL_DOCUMENTATION.md` | Detailed engineering documentation |
 | `docs/DEMO_SCRIPT.md` | Step-by-step portfolio demo and review checklist |
+| `docs/API_EXAMPLES.md` | Copy-paste examples for REST, GraphQL, webhooks, health, metrics, and outbox recovery |
+| `docs/PRODUCTION_CHECKLIST.md` | Production readiness, security, observability, backup, and rollback checklist |
 | `manage.py` | Django command-line entrypoint |
 | `Makefile` | Developer and demo command shortcuts |
 | `requirements.txt` | Runtime Python dependencies |
@@ -852,6 +854,5 @@ real production platform:
 - Add provider-level integration tests with mocked Twilio and Telegram APIs.
 - Add OpenTelemetry tracing for API requests and Celery tasks.
 - Add Sentry or another error monitoring backend.
-- Add dedicated `docs/API_EXAMPLES.md` with cURL, GraphQL, and webhook examples.
 - Add production deployment manifest and TLS reverse proxy example.
 - Add alerting rules for failed notifications and old pending outbox rows.
