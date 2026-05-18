@@ -851,7 +851,6 @@ PostgreSQL and Redis are intentionally internal to avoid conflicts with other pr
 The service is already portfolio-ready, but these improvements would push it closer to a
 real production platform:
 
-- Add provider-level integration tests with mocked Twilio and Telegram APIs.
 - Add OpenTelemetry tracing for API requests and Celery tasks.
 - Add Sentry or another error monitoring backend.
 - Add production deployment manifest and TLS reverse proxy example.

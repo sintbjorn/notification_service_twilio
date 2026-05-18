@@ -1,12 +1,12 @@
 import json
 from datetime import timedelta
 from io import StringIO
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 from django.conf import settings
 from django.core.cache import cache
 from django.core.management import call_command
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
@@ -19,8 +19,242 @@ from notifications.models import (
     User,
 )
 from notifications.services.producer import enqueue_notification
-from notifications.services.providers import ProviderError
+from notifications.services.providers import (
+    EmailProvider,
+    ProviderError,
+    SmsProvider,
+    TelegramProvider,
+)
 from notifications.tasks import dispatch_notification_outbox_task, send_notification_task
+
+
+class ProviderContractTests(SimpleTestCase):
+    def twilio_response(self, *, ok=True, status_code=201, payload=None, text=""):
+        response = Mock()
+        response.ok = ok
+        response.status_code = status_code
+        response.text = text
+        response.json.return_value = payload or {}
+        return response
+
+    def telegram_response(self, *, ok=True, status_code=200, payload=None, text=""):
+        response = Mock()
+        response.ok = ok
+        response.status_code = status_code
+        response.text = text
+        response.json.return_value = payload or {}
+        return response
+
+    def assert_provider_error(self, error, *, retryable, code):
+        self.assertEqual(error.retryable, retryable)
+        self.assertEqual(error.code, code)
+
+    def test_email_provider_sends_smtp_message(self):
+        smtp_client = Mock()
+        smtp_context = MagicMock()
+        smtp_context.__enter__.return_value = smtp_client
+        smtp_context.__exit__.return_value = None
+
+        provider = EmailProvider(
+            host="smtp.example.com",
+            port=587,
+            user="smtp-user",
+            password="smtp-password",
+            use_tls=True,
+            sender="no-reply@example.com",
+        )
+
+        with patch(
+            "notifications.services.providers.email.smtplib.SMTP",
+            return_value=smtp_context,
+        ):
+            result = provider.send("user@example.com", "Subject", "Body")
+
+        self.assertEqual(result.channel, "email")
+        smtp_client.starttls.assert_called_once()
+        smtp_client.login.assert_called_once_with("smtp-user", "smtp-password")
+        sent_message = smtp_client.send_message.call_args.args[0]
+        self.assertEqual(sent_message["From"], "no-reply@example.com")
+        self.assertEqual(sent_message["To"], "user@example.com")
+        self.assertEqual(sent_message["Subject"], "Subject")
+        self.assertIn("Body", sent_message.get_content())
+
+    def test_email_provider_missing_recipient_is_non_retryable(self):
+        provider = EmailProvider("smtp.example.com", 587, "", "", sender="no-reply@example.com")
+
+        with self.assertRaises(ProviderError) as raised:
+            provider.send("", "Subject", "Body")
+
+        self.assert_provider_error(
+            raised.exception,
+            retryable=False,
+            code="missing_email",
+        )
+
+    def test_email_provider_smtp_error_is_retryable(self):
+        provider = EmailProvider("smtp.example.com", 587, "", "", sender="no-reply@example.com")
+
+        with patch(
+            "notifications.services.providers.email.smtplib.SMTP",
+            side_effect=OSError("network unreachable"),
+        ):
+            with self.assertRaises(ProviderError) as raised:
+                provider.send("user@example.com", "Subject", "Body")
+
+        self.assert_provider_error(
+            raised.exception,
+            retryable=True,
+            code="smtp_connection_error",
+        )
+
+    def test_sms_provider_success_returns_provider_message_id(self):
+        provider = SmsProvider("AC123", "token", "+10000000000")
+        response = self.twilio_response(payload={"sid": "SM123", "status": "queued"})
+
+        with patch(
+            "notifications.services.providers.sms_twilio.requests.post",
+            return_value=response,
+        ) as post:
+            result = provider.send("+15551234567", "Hello")
+
+        self.assertEqual(result.channel, "sms")
+        self.assertEqual(result.provider_message_id, "SM123")
+        self.assertEqual(result.raw_response, {"sid": "SM123", "status": "queued"})
+        post.assert_called_once_with(
+            "https://api.twilio.com/2010-04-01/Accounts/AC123/Messages.json",
+            data={"From": "+10000000000", "To": "+15551234567", "Body": "Hello"},
+            auth=("AC123", "token"),
+            timeout=15,
+        )
+
+    def test_sms_provider_missing_phone_is_non_retryable(self):
+        provider = SmsProvider("AC123", "token", "+10000000000")
+
+        with self.assertRaises(ProviderError) as raised:
+            provider.send("", "Hello")
+
+        self.assert_provider_error(
+            raised.exception,
+            retryable=False,
+            code="missing_phone",
+        )
+
+    def test_sms_provider_400_is_non_retryable(self):
+        provider = SmsProvider("AC123", "token", "+10000000000")
+        response = self.twilio_response(
+            ok=False,
+            status_code=400,
+            payload={"message": "Invalid To number"},
+        )
+
+        with patch(
+            "notifications.services.providers.sms_twilio.requests.post",
+            return_value=response,
+        ):
+            with self.assertRaises(ProviderError) as raised:
+                provider.send("+15551234567", "Hello")
+
+        self.assert_provider_error(
+            raised.exception,
+            retryable=False,
+            code="twilio_http_400",
+        )
+
+    def test_sms_provider_429_and_500_are_retryable(self):
+        provider = SmsProvider("AC123", "token", "+10000000000")
+
+        for status_code in (429, 500):
+            response = self.twilio_response(
+                ok=False,
+                status_code=status_code,
+                payload={"message": "Temporary failure"},
+            )
+            with patch(
+                "notifications.services.providers.sms_twilio.requests.post",
+                return_value=response,
+            ):
+                with self.assertRaises(ProviderError) as raised:
+                    provider.send("+15551234567", "Hello")
+
+            self.assert_provider_error(
+                raised.exception,
+                retryable=True,
+                code=f"twilio_http_{status_code}",
+            )
+
+    def test_telegram_provider_success_returns_message_id(self):
+        provider = TelegramProvider("bot-token")
+        response = self.telegram_response(payload={"ok": True, "result": {"message_id": 123}})
+
+        with patch(
+            "notifications.services.providers.telegram.requests.post",
+            return_value=response,
+        ) as post:
+            result = provider.send("12345", "Hello")
+
+        self.assertEqual(result.channel, "telegram")
+        self.assertEqual(result.provider_message_id, "123")
+        self.assertEqual(result.raw_response, {"ok": True, "result": {"message_id": 123}})
+        post.assert_called_once_with(
+            "https://api.telegram.org/botbot-token/sendMessage",
+            json={"chat_id": "12345", "text": "Hello"},
+            timeout=10,
+        )
+
+    def test_telegram_provider_missing_chat_id_is_non_retryable(self):
+        provider = TelegramProvider("bot-token")
+
+        with self.assertRaises(ProviderError) as raised:
+            provider.send("", "Hello")
+
+        self.assert_provider_error(
+            raised.exception,
+            retryable=False,
+            code="missing_chat_id",
+        )
+
+    def test_telegram_provider_400_is_non_retryable(self):
+        provider = TelegramProvider("bot-token")
+        response = self.telegram_response(
+            ok=False,
+            status_code=400,
+            payload={"description": "Bad Request: chat not found"},
+        )
+
+        with patch(
+            "notifications.services.providers.telegram.requests.post",
+            return_value=response,
+        ):
+            with self.assertRaises(ProviderError) as raised:
+                provider.send("12345", "Hello")
+
+        self.assert_provider_error(
+            raised.exception,
+            retryable=False,
+            code="telegram_http_400",
+        )
+
+    def test_telegram_provider_429_and_500_are_retryable(self):
+        provider = TelegramProvider("bot-token")
+
+        for status_code in (429, 500):
+            response = self.telegram_response(
+                ok=False,
+                status_code=status_code,
+                payload={"description": "Temporary failure"},
+            )
+            with patch(
+                "notifications.services.providers.telegram.requests.post",
+                return_value=response,
+            ):
+                with self.assertRaises(ProviderError) as raised:
+                    provider.send("12345", "Hello")
+
+            self.assert_provider_error(
+                raised.exception,
+                retryable=True,
+                code=f"telegram_http_{status_code}",
+            )
 
 
 class NotificationDeliveryTests(TestCase):

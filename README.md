@@ -628,10 +628,8 @@ For Twilio trial accounts, both the sender and recipient may need to be verified
 
 - Provider credentials are configured through environment variables only.
 - Observability can be expanded with tracing and Sentry.
-- Provider-level integration tests can be expanded with mocked external APIs.
 
 ## Roadmap
 
 - Add Sentry/OpenTelemetry tracing for API requests and Celery tasks.
-- Add provider contract tests with mocked Twilio and Telegram APIs.
 - Add deployment manifests for a production platform.
