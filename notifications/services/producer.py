@@ -3,8 +3,8 @@ import logging
 from django.db import transaction
 from django.db.utils import IntegrityError
 
-from ..models import Notification
-from ..tasks import send_notification_task
+from ..models import Notification, NotificationOutbox
+from ..tasks import schedule_outbox_dispatch
 
 logger = logging.getLogger(__name__)
 
@@ -24,15 +24,17 @@ def enqueue_notification(*, user, subject: str, message: str, idempotency_key: s
                 created = True
 
             if created:
+                outbox = NotificationOutbox.objects.create(notification=notif)
                 logger.info(
                     "notification.created",
                     extra={
                         "notification_id": notif.id,
+                        "outbox_id": outbox.id,
                         "user_id": user.id,
                         "idempotency_key": idempotency_key,
                     },
                 )
-                transaction.on_commit(lambda: send_notification_task.delay(notif.id))
+                transaction.on_commit(lambda: schedule_outbox_dispatch(outbox.id))
     except IntegrityError:
         if not idempotency_key:
             raise

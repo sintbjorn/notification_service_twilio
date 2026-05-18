@@ -2,15 +2,28 @@ from django.core.cache import cache
 from django.db import connections
 from django.db.utils import OperationalError
 from django.http import JsonResponse
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiExample, OpenApiResponse, extend_schema
 from rest_framework.decorators import api_view
+
+from .serializers import HealthLiveSerializer, HealthReadySerializer
 
 
 @extend_schema(
     tags=["System"],
     summary="Liveness probe",
     description="Returns 200 when the Django process is running.",
-    responses={200: OpenApiResponse(description="Process is alive.")},
+    auth=[],
+    responses={
+        200: OpenApiResponse(HealthLiveSerializer, description="Process is alive."),
+    },
+    examples=[
+        OpenApiExample(
+            "Live",
+            value={"status": "ok"},
+            response_only=True,
+            status_codes=["200"],
+        )
+    ],
 )
 @api_view(["GET"])
 def health_live(request):
@@ -21,10 +34,28 @@ def health_live(request):
     tags=["System"],
     summary="Readiness probe",
     description="Checks database and cache/broker connectivity.",
+    auth=[],
     responses={
-        200: OpenApiResponse(description="Service is ready."),
-        503: OpenApiResponse(description="A required dependency is unavailable."),
+        200: OpenApiResponse(HealthReadySerializer, description="Service is ready."),
+        503: OpenApiResponse(
+            HealthReadySerializer,
+            description="A required dependency is unavailable.",
+        ),
     },
+    examples=[
+        OpenApiExample(
+            "Ready",
+            value={"status": "ok", "checks": {"database": True, "cache": True}},
+            response_only=True,
+            status_codes=["200"],
+        ),
+        OpenApiExample(
+            "Dependency unavailable",
+            value={"status": "error", "checks": {"database": True, "cache": False}},
+            response_only=True,
+            status_codes=["503"],
+        ),
+    ],
 )
 @api_view(["GET"])
 def health_ready(request):

@@ -4,8 +4,15 @@ from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.http import urlencode
 
-from .models import DeliveryAttempt, Notification, NotificationStatus, User
-from .tasks import send_notification_task
+from .models import (
+    DeliveryAttempt,
+    Notification,
+    NotificationOutbox,
+    NotificationOutboxStatus,
+    NotificationStatus,
+    User,
+)
+from .tasks import dispatch_notification_outbox_task, schedule_outbox_dispatch
 
 
 STATUS_COLORS = {
@@ -173,10 +180,81 @@ class NotificationAdmin(admin.ModelAdmin):
                 subject=notification.subject,
                 message=notification.message,
             )
-            send_notification_task.delay(clone.id)
+            outbox = NotificationOutbox.objects.create(notification=clone)
+            schedule_outbox_dispatch(outbox.id)
             cloned += 1
 
         self.message_user(request, f"Cloned {cloned} failed notification(s) for redelivery.")
+
+
+@admin.register(NotificationOutbox)
+class NotificationOutboxAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "notification_link",
+        "status_badge",
+        "attempts",
+        "created_at",
+        "published_at",
+        "last_error_preview",
+    )
+    list_filter = ("status", "created_at", "published_at")
+    search_fields = (
+        "id",
+        "notification__id",
+        "notification__idempotency_key",
+        "notification__subject",
+        "last_error",
+    )
+    readonly_fields = (
+        "notification",
+        "status",
+        "attempts",
+        "last_error",
+        "created_at",
+        "updated_at",
+        "published_at",
+    )
+    date_hierarchy = "created_at"
+    ordering = ("-created_at", "-id")
+    list_select_related = ("notification",)
+    list_per_page = 50
+    actions = ("dispatch_selected",)
+
+    @admin.display(description="Notification", ordering="notification")
+    def notification_link(self, obj):
+        return admin_link(
+            "admin:notifications_notification_change",
+            obj.notification_id,
+            f"Notification #{obj.notification_id}",
+        )
+
+    @admin.display(description="Status", ordering="status")
+    def status_badge(self, obj):
+        color = {
+            NotificationOutboxStatus.PENDING: "#6b7280",
+            NotificationOutboxStatus.PUBLISHED: "#15803d",
+            NotificationOutboxStatus.FAILED: "#b91c1c",
+        }.get(obj.status, "#6b7280")
+        return format_html('<strong style="color: {};">{}</strong>', color, obj.status)
+
+    @admin.display(description="Last error")
+    def last_error_preview(self, obj):
+        if not obj.last_error:
+            return "-"
+        if len(obj.last_error) <= 80:
+            return obj.last_error
+        return f"{obj.last_error[:77]}..."
+
+    @admin.action(description="Dispatch selected pending/failed outbox rows")
+    def dispatch_selected(self, request, queryset):
+        published = 0
+        for outbox in queryset.exclude(status=NotificationOutboxStatus.PUBLISHED):
+            published += dispatch_notification_outbox_task(outbox_id=outbox.id)
+        self.message_user(request, f"Published {published} outbox row(s).")
+
+    def has_add_permission(self, request):
+        return False
 
 
 @admin.register(DeliveryAttempt)

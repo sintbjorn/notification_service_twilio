@@ -1,16 +1,25 @@
 import json
+from datetime import timedelta
 from io import StringIO
 from unittest.mock import Mock, patch
 
 from django.core.cache import cache
 from django.core.management import call_command
 from django.test import TestCase, override_settings
+from django.utils import timezone
 from rest_framework.test import APIClient
 
-from notifications.models import DeliveryAttempt, Notification, NotificationStatus, User
+from notifications.models import (
+    DeliveryAttempt,
+    Notification,
+    NotificationOutbox,
+    NotificationOutboxStatus,
+    NotificationStatus,
+    User,
+)
 from notifications.services.producer import enqueue_notification
 from notifications.services.providers import ProviderError
-from notifications.tasks import send_notification_task
+from notifications.tasks import dispatch_notification_outbox_task, send_notification_task
 
 
 class NotificationDeliveryTests(TestCase):
@@ -119,7 +128,7 @@ class EnqueueNotificationTests(TestCase):
     def test_idempotency_key_returns_existing_notification_without_requeueing(self):
         user = User.objects.create(email="user@example.com")
 
-        with patch("notifications.services.producer.send_notification_task.delay") as delay:
+        with patch("notifications.services.producer.schedule_outbox_dispatch") as dispatch:
             with self.captureOnCommitCallbacks(execute=True):
                 first = enqueue_notification(
                     user=user,
@@ -136,26 +145,59 @@ class EnqueueNotificationTests(TestCase):
 
         self.assertEqual(first.id, second.id)
         self.assertEqual(Notification.objects.count(), 1)
-        delay.assert_called_once_with(first.id)
+        outbox = NotificationOutbox.objects.get(notification=first)
+        dispatch.assert_called_once_with(outbox.id)
+
+    def test_outbox_dispatch_publishes_notification_task(self):
+        user = User.objects.create(email="user@example.com")
+        notification = Notification.objects.create(user=user, subject="Hello", message="Body")
+        outbox = NotificationOutbox.objects.create(notification=notification)
+
+        with patch("notifications.tasks.send_notification_task.delay") as delay:
+            published = dispatch_notification_outbox_task(outbox_id=outbox.id)
+
+        outbox.refresh_from_db()
+        self.assertEqual(published, 1)
+        self.assertEqual(outbox.status, NotificationOutboxStatus.PUBLISHED)
+        self.assertEqual(outbox.attempts, 1)
+        delay.assert_called_once_with(notification.id)
+
+    def test_outbox_dispatch_keeps_failed_publish_for_recovery(self):
+        user = User.objects.create(email="user@example.com")
+        notification = Notification.objects.create(user=user, subject="Hello", message="Body")
+        outbox = NotificationOutbox.objects.create(notification=notification)
+
+        with patch(
+            "notifications.tasks.send_notification_task.delay",
+            side_effect=RuntimeError("broker down"),
+        ):
+            published = dispatch_notification_outbox_task(outbox_id=outbox.id)
+
+        outbox.refresh_from_db()
+        self.assertEqual(published, 0)
+        self.assertEqual(outbox.status, NotificationOutboxStatus.FAILED)
+        self.assertEqual(outbox.attempts, 1)
+        self.assertIn("broker down", outbox.last_error)
 
 
 class SeedDemoCommandTests(TestCase):
     def test_seed_demo_creates_user_and_notification(self):
         out = StringIO()
 
-        with patch("notifications.services.producer.send_notification_task.delay") as delay:
+        with patch("notifications.services.producer.schedule_outbox_dispatch") as dispatch:
             with self.captureOnCommitCallbacks(execute=True):
                 call_command("seed_demo", stdout=out)
 
         self.assertIn("Demo notification enqueued.", out.getvalue())
         self.assertEqual(User.objects.count(), 1)
         self.assertEqual(Notification.objects.count(), 1)
-        delay.assert_called_once_with(Notification.objects.get().id)
+        outbox = NotificationOutbox.objects.get(notification=Notification.objects.get())
+        dispatch.assert_called_once_with(outbox.id)
 
     def test_seed_demo_reuses_fixed_idempotency_key(self):
         out = StringIO()
 
-        with patch("notifications.services.producer.send_notification_task.delay") as delay:
+        with patch("notifications.services.producer.schedule_outbox_dispatch") as dispatch:
             with self.captureOnCommitCallbacks(execute=True):
                 call_command("seed_demo", "--idempotency-key=demo-fixed", stdout=out)
             with self.captureOnCommitCallbacks(execute=True):
@@ -163,7 +205,8 @@ class SeedDemoCommandTests(TestCase):
 
         self.assertEqual(User.objects.count(), 1)
         self.assertEqual(Notification.objects.count(), 1)
-        delay.assert_called_once_with(Notification.objects.get().id)
+        outbox = NotificationOutbox.objects.get(notification=Notification.objects.get())
+        dispatch.assert_called_once_with(outbox.id)
 
 
 class NotificationAPITests(TestCase):
@@ -192,7 +235,7 @@ class NotificationAPITests(TestCase):
         self.assertEqual(response.status_code, 401)
 
     def test_create_notification_accepts_valid_api_key(self):
-        with patch("notifications.services.producer.send_notification_task.delay") as delay:
+        with patch("notifications.services.producer.schedule_outbox_dispatch") as dispatch:
             with self.captureOnCommitCallbacks(execute=True):
                 response = self.client.post(
                     "/api/notifications/",
@@ -203,13 +246,14 @@ class NotificationAPITests(TestCase):
 
         self.assertEqual(response.status_code, 201)
         self.assertEqual(Notification.objects.count(), 1)
-        delay.assert_called_once_with(Notification.objects.get().id)
+        outbox = NotificationOutbox.objects.get(notification=Notification.objects.get())
+        dispatch.assert_called_once_with(outbox.id)
 
     def test_notification_endpoint_is_throttled(self):
         cache.clear()
 
         with (
-            patch("notifications.services.producer.send_notification_task.delay"),
+            patch("notifications.services.producer.schedule_outbox_dispatch"),
             patch("rest_framework.throttling.ScopedRateThrottle.get_rate", return_value="1/min"),
         ):
             first = self.client.post(
@@ -255,6 +299,42 @@ class SystemEndpointTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
 
+    def test_openapi_schema_documents_public_surface(self):
+        response = self.client.get("/api/schema/", HTTP_ACCEPT="application/json")
+
+        self.assertEqual(response.status_code, 200)
+        schema = json.loads(response.content)
+        paths = schema["paths"]
+
+        self.assertIn("/api/notifications/", paths)
+        self.assertIn("/api/notifications/{id}/", paths)
+        self.assertIn("/health/live", paths)
+        self.assertIn("/health/ready", paths)
+        self.assertNotIn("/metrics", paths)
+        self.assertNotIn("/webhooks/telegram/", paths)
+        self.assertNotIn("/graphql", paths)
+
+        post_notification = paths["/api/notifications/"]["post"]
+        self.assertEqual(post_notification["tags"], ["Notifications"])
+        self.assertEqual(post_notification["security"], [{"ApiKeyAuth": []}])
+        self.assertIn("400", post_notification["responses"])
+        self.assertIn("401", post_notification["responses"])
+        self.assertIn("429", post_notification["responses"])
+        self.assertIn(
+            "ValidationError",
+            post_notification["responses"]["400"]["content"]["application/json"]["examples"],
+        )
+
+        live = paths["/health/live"]["get"]
+        self.assertEqual(live["tags"], ["System"])
+        self.assertEqual(live.get("security", []), [])
+
+        components = schema["components"]
+        self.assertIn("ApiKeyAuth", components["securitySchemes"])
+        self.assertIn("HealthLive", components["schemas"])
+        self.assertIn("HealthReady", components["schemas"])
+        self.assertIn("user_id", components["schemas"]["ValidationError"]["properties"])
+
     def test_liveness_endpoint_returns_ok(self):
         response = self.client.get("/health/live")
 
@@ -278,6 +358,42 @@ class SystemEndpointTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("text/plain", response["Content-Type"])
+
+    def test_metrics_include_outbox_rows_by_status(self):
+        user = User.objects.create(email="metrics@example.com")
+        notification = Notification.objects.create(user=user, subject="Hello", message="Body")
+        NotificationOutbox.objects.create(notification=notification)
+
+        response = self.client.get("/metrics", HTTP_X_API_KEY="test-notification-api-key")
+        body = response.content.decode()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('notification_outbox_rows_total{status="pending"} 1.0', body)
+        self.assertIn("notification_outbox_oldest_pending_age_seconds", body)
+
+    def test_metrics_include_failed_outbox_publish_attempts(self):
+        user = User.objects.create(email="metrics@example.com")
+        notification = Notification.objects.create(user=user, subject="Hello", message="Body")
+        outbox = NotificationOutbox.objects.create(
+            notification=notification,
+            created_at=timezone.now() - timedelta(seconds=60),
+        )
+
+        with patch(
+            "notifications.tasks.send_notification_task.delay",
+            side_effect=RuntimeError("broker down"),
+        ):
+            dispatch_notification_outbox_task(outbox_id=outbox.id)
+
+        response = self.client.get("/metrics", HTTP_X_API_KEY="test-notification-api-key")
+        body = response.content.decode()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('notification_outbox_rows_total{status="failed"} 1.0', body)
+        self.assertIn(
+            'notification_outbox_publish_attempts_total{status="failed"}',
+            body,
+        )
 
 
 class TelegramWebhookTests(TestCase):

@@ -2,15 +2,87 @@ import logging
 
 from celery import shared_task
 from django.db import transaction
+from django.db.models import F
+from django.utils import timezone
 
-from .metrics import delivery_attempts_total, notifications_failed_total, notifications_sent_total
-from .models import DeliveryAttempt, Notification, NotificationStatus
+from .metrics import (
+    delivery_attempts_total,
+    notification_outbox_publish_attempts_total,
+    notifications_failed_total,
+    notifications_sent_total,
+)
+from .models import (
+    DeliveryAttempt,
+    Notification,
+    NotificationOutbox,
+    NotificationOutboxStatus,
+    NotificationStatus,
+)
 from .services.factory import get_provider
 from .services.providers import ProviderError, ProviderResult
 
 MAX_RETRIES_PER_CHANNEL = 3
 RETRY_BACKOFF_SECONDS = (5, 30, 120)
 logger = logging.getLogger(__name__)
+
+
+def schedule_outbox_dispatch(outbox_id: int) -> None:
+    try:
+        dispatch_notification_outbox_task.delay(outbox_id=outbox_id)
+    except Exception as exc:
+        logger.exception(
+            "notification.outbox_schedule_failed",
+            extra={"outbox_id": outbox_id, "error": str(exc)},
+        )
+
+
+@shared_task(bind=True, max_retries=None)
+def dispatch_notification_outbox_task(self, outbox_id: int | None = None, limit: int = 100):
+    queryset = NotificationOutbox.objects.select_related("notification").exclude(
+        status=NotificationOutboxStatus.PUBLISHED,
+    )
+    if outbox_id is not None:
+        queryset = queryset.filter(pk=outbox_id)
+    else:
+        queryset = queryset.order_by("created_at")[:limit]
+
+    published = 0
+    for outbox in queryset:
+        try:
+            send_notification_task.delay(outbox.notification_id)
+        except Exception as exc:
+            notification_outbox_publish_attempts_total.labels(status="failed").inc()
+            NotificationOutbox.objects.filter(pk=outbox.pk).update(
+                attempts=F("attempts") + 1,
+                status=NotificationOutboxStatus.FAILED,
+                last_error=str(exc),
+                updated_at=timezone.now(),
+            )
+            logger.exception(
+                "notification.outbox_publish_failed",
+                extra={
+                    "outbox_id": outbox.id,
+                    "notification_id": outbox.notification_id,
+                    "error": str(exc),
+                },
+            )
+            continue
+
+        notification_outbox_publish_attempts_total.labels(status="published").inc()
+        NotificationOutbox.objects.filter(pk=outbox.pk).update(
+            attempts=F("attempts") + 1,
+            status=NotificationOutboxStatus.PUBLISHED,
+            last_error="",
+            updated_at=timezone.now(),
+            published_at=timezone.now(),
+        )
+        published += 1
+        logger.info(
+            "notification.outbox_published",
+            extra={"outbox_id": outbox.id, "notification_id": outbox.notification_id},
+        )
+
+    return published
 
 
 def _send_via_channel(provider, channel: str, notification: Notification) -> ProviderResult | None:

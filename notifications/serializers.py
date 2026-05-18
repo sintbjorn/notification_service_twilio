@@ -50,4 +50,42 @@ class ErrorSerializer(serializers.Serializer):
 
 
 class ValidationErrorSerializer(serializers.Serializer):
-    field = serializers.ListField(child=serializers.CharField())
+    user_id = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Validation errors for the target user id.",
+    )
+    subject = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Validation errors for the optional notification subject.",
+    )
+    message = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Validation errors for the notification body.",
+    )
+    idempotency_key = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Validation errors for the client idempotency key.",
+    )
+    non_field_errors = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Validation errors that are not tied to a single request field.",
+    )
+
+
+class HealthLiveSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(choices=["ok"])
+
+
+class HealthReadyChecksSerializer(serializers.Serializer):
+    database = serializers.BooleanField()
+    cache = serializers.BooleanField()
+
+
+class HealthReadySerializer(serializers.Serializer):
+    status = serializers.ChoiceField(choices=["ok", "error"])
+    checks = HealthReadyChecksSerializer()

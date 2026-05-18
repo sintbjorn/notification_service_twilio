@@ -66,6 +66,12 @@ from .serializers import (
                 status_codes=["401"],
             ),
             OpenApiExample(
+                "Invalid API key",
+                value={"detail": "Invalid API key."},
+                response_only=True,
+                status_codes=["401"],
+            ),
+            OpenApiExample(
                 "Rate limited",
                 value={"detail": "Request was throttled. Expected available in 42 seconds."},
                 response_only=True,
@@ -78,11 +84,30 @@ from .serializers import (
         tags=["Notifications"],
         description="Returns the current notification status and delivery payload metadata.",
         responses={
-            200: NotificationDetailSerializer,
+            200: OpenApiResponse(NotificationDetailSerializer, description="Notification status."),
             401: OpenApiResponse(ErrorSerializer, description="Missing or invalid API key."),
             404: OpenApiResponse(ErrorSerializer, description="Notification was not found."),
         },
         examples=[
+            OpenApiExample(
+                "Sent notification",
+                value={
+                    "id": 42,
+                    "user": 1,
+                    "subject": "Renovation update",
+                    "message": "Your inspection report is ready.",
+                    "status": "sent",
+                    "created_at": "2026-05-16T12:00:00Z",
+                },
+                response_only=True,
+                status_codes=["200"],
+            ),
+            OpenApiExample(
+                "Unauthorized",
+                value={"detail": "Authentication credentials were not provided."},
+                response_only=True,
+                status_codes=["401"],
+            ),
             OpenApiExample(
                 "Not found",
                 value={"detail": "Not found."},

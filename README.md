@@ -23,6 +23,12 @@ It is designed to demonstrate reliability patterns that matter in real backend s
 background processing, retry/backoff, fallback delivery, idempotent enqueueing, and an
 auditable delivery history.
 
+## Documentation
+
+- [Technical Documentation](docs/TECHNICAL_DOCUMENTATION.md) - complete engineering
+  handbook with architecture, flows, configuration, observability, Docker runtime,
+  troubleshooting, and a file-by-file project reference.
+
 ## Features
 
 - REST API for creating and retrieving notifications.
@@ -72,11 +78,15 @@ Client / Internal Service
         v
 Django REST / GraphQL API
         |
-        |  persist Notification + DeliveryAttempt audit data
+        |  persist Notification + NotificationOutbox
         v
    PostgreSQL
         |
-        |  transaction.on_commit(...)
+        |  transaction.on_commit(...) schedules dispatcher
+        v
+   Celery outbox dispatcher
+        |
+        |  publish delivery task
         v
    Redis queue/cache
         |
@@ -93,7 +103,8 @@ flowchart LR
     client["Client / API Consumer"]
     nginx["Nginx<br/>Reverse Proxy"]
     django["Django API<br/>DRF + GraphQL"]
-    db[("PostgreSQL<br/>Notifications + Attempts")]
+    db[("PostgreSQL<br/>Notifications + Outbox + Attempts")]
+    outbox["Celery Outbox Dispatcher<br/>Publish Recovery"]
     redis[("Redis<br/>Broker + Cache")]
     worker["Celery Worker<br/>Retry + Fallback"]
     prometheus["Prometheus<br/>/metrics"]
@@ -103,8 +114,9 @@ flowchart LR
 
     client -->|"REST / GraphQL"| nginx
     nginx --> django
-    django -->|"Create notification"| db
-    django -->|"transaction.on_commit"| redis
+    django -->|"Create notification + outbox row"| db
+    django -->|"transaction.on_commit"| outbox
+    outbox -->|"Publish delivery task"| redis
     prometheus -->|"scrape"| django
     redis -->|"Task message"| worker
     worker -->|"Read/update status"| db
@@ -113,16 +125,21 @@ flowchart LR
     worker -->|"Telegram"| telegram
 ```
 
-Delivery attempts are persisted in `DeliveryAttempt`, which makes retries and failures
-visible for debugging, admin review, and future analytics.
+Outbox rows are persisted in `NotificationOutbox`, which protects task publishing from
+broker failures after a successful database commit. Delivery attempts are persisted in
+`DeliveryAttempt`, which makes retries and failures visible for debugging, admin review,
+and future analytics.
 
 Core components:
 
 - **Nginx** terminates external HTTP traffic and proxies requests to Django.
 - **Django REST / GraphQL API** validates requests, enforces API key auth, throttles
   notification creation, and stores durable notification records.
-- **PostgreSQL** stores users, notifications, idempotency keys, and delivery attempts.
+- **PostgreSQL** stores users, notifications, outbox rows, idempotency keys, and delivery
+  attempts.
 - **Redis** acts as Celery broker/result backend and cache backend.
+- **Celery outbox dispatcher** publishes durable outbox rows to the broker and leaves
+  failed publishes recoverable.
 - **Celery worker** performs provider calls outside the request path, with retry and
   fallback behavior.
 - **Providers** deliver messages through SMTP/Mailpit, Twilio SMS, and Telegram Bot API.
@@ -251,11 +268,15 @@ queued -> processing -> failed
 
 ```text
 notifications/
-  models.py                 # User, Notification, DeliveryAttempt
+  models.py                 # User, Notification, NotificationOutbox, DeliveryAttempt
   serializers.py            # DRF serializers
   views.py                  # REST viewset and health endpoint
   schema.py                 # GraphQL schema
-  tasks.py                  # Celery delivery task
+  tasks.py                  # Celery outbox dispatcher and delivery task
+  management/
+    commands/
+      seed_demo.py          # One-command portfolio demo flow
+      dispatch_outbox.py    # Manual outbox recovery command
   services/
     producer.py             # Idempotent enqueueing
     factory.py              # Provider factory
@@ -477,12 +498,15 @@ curl http://localhost:8000/metrics \
   -H "X-API-Key: dev-notification-api-key"
 ```
 
-Key counters:
+Key metrics:
 
 ```text
 notifications_sent_total
 notifications_failed_total
 delivery_attempts_total{channel,status}
+notification_outbox_rows_total{status}
+notification_outbox_publish_attempts_total{status}
+notification_outbox_oldest_pending_age_seconds
 ```
 
 ## Architecture Decisions
@@ -490,7 +514,10 @@ delivery_attempts_total{channel,status}
 - **Celery for delivery**: notification delivery is slow and failure-prone because it
   depends on external providers, so it runs outside the request/response path.
 - **`transaction.on_commit` before enqueueing**: Celery tasks are published only after the
-  `Notification` row is committed, preventing workers from loading missing data.
+  `NotificationOutbox` row is committed, preventing workers from loading missing data.
+- **Durable outbox**: notification creation and task-publish intent are stored in the same
+  database transaction. If broker publishing fails, the outbox row remains recoverable via
+  the dispatcher task or `python manage.py dispatch_outbox`.
 - **Idempotency key**: clients can safely retry `POST /api/notifications/` without
   creating duplicate notifications or duplicate delivery jobs.
 - **Delivery attempts audit trail**: each provider attempt is persisted for debugging,
@@ -563,6 +590,11 @@ For Twilio trial accounts, both the sender and recipient may need to be verified
 ## Reliability Notes
 
 - Tasks are enqueued only after the database transaction commits.
+- `NotificationOutbox` stores durable publish intent before any Celery task is sent.
+- If task publishing fails, run `python manage.py dispatch_outbox` to republish pending or
+  failed outbox rows.
+- `notification_outbox_oldest_pending_age_seconds` should normally be `0`; a growing
+  value means outbox rows are waiting for dispatch or broker recovery.
 - Reusing an `idempotency_key` returns the existing notification instead of creating
   and enqueueing a duplicate.
 - Every provider attempt is stored in `DeliveryAttempt`.
@@ -588,11 +620,10 @@ For Twilio trial accounts, both the sender and recipient may need to be verified
 
 - Provider credentials are configured through environment variables only.
 - Observability can be expanded with tracing and Sentry.
-- The current enqueueing flow uses `transaction.on_commit`; a durable outbox table would
-  further protect against broker publish failures after database commit.
+- Provider-level integration tests can be expanded with mocked external APIs.
 
 ## Roadmap
 
-- Add a durable `NotificationOutbox` dispatcher.
-- Split providers into explicit base/email/Twilio/Telegram modules with typed results.
-- Add provider-level integration tests with mocked external APIs.
+- Add Sentry/OpenTelemetry tracing for API requests and Celery tasks.
+- Add provider contract tests with mocked Twilio and Telegram APIs.
+- Add deployment manifests for a production platform.

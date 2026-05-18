@@ -9,6 +9,12 @@ class NotificationStatus(models.TextChoices):
     FAILED = "failed", "Failed"
 
 
+class NotificationOutboxStatus(models.TextChoices):
+    PENDING = "pending", "Pending"
+    PUBLISHED = "published", "Published"
+    FAILED = "failed", "Failed"
+
+
 class User(models.Model):
     email = models.EmailField(blank=True, null=True)
     phone = models.CharField(max_length=32, blank=True, null=True)
@@ -37,6 +43,32 @@ class Notification(models.Model):
 
     def __str__(self):
         return f"Notification#{self.pk} -> {self.user}"
+
+
+class NotificationOutbox(models.Model):
+    notification = models.OneToOneField(
+        Notification,
+        on_delete=models.CASCADE,
+        related_name="outbox",
+    )
+    status = models.CharField(
+        max_length=16,
+        choices=NotificationOutboxStatus.choices,
+        default=NotificationOutboxStatus.PENDING,
+    )
+    attempts = models.PositiveIntegerField(default=0)
+    last_error = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+    published_at = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["status", "created_at"], name="notif_outbox_status_idx"),
+        ]
+
+    def __str__(self):
+        return f"Outbox#{self.pk} -> Notification#{self.notification_id} [{self.status}]"
 
 
 class DeliveryAttempt(models.Model):

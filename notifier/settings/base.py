@@ -149,10 +149,31 @@ REST_FRAMEWORK = {
 SPECTACULAR_SETTINGS = {
     "TITLE": "Notification Service API",
     "DESCRIPTION": (
-        "Asynchronous notification delivery with retries, fallback channels, and idempotency."
+        "Asynchronous notification delivery with retries, fallback channels, idempotency, "
+        "and durable outbox publishing. REST notification endpoints use service-to-service "
+        "API key authentication via the `X-API-Key` header."
     ),
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
+    "TAGS": [
+        {
+            "name": "Notifications",
+            "description": (
+                "Create notifications and inspect their asynchronous delivery status."
+            ),
+        },
+        {
+            "name": "System",
+            "description": "Operational endpoints for liveness and readiness checks.",
+        },
+        {
+            "name": "Webhooks",
+            "description": (
+                "Internal provider callback endpoints. Webhook routes are intentionally "
+                "excluded from public REST documentation."
+            ),
+        },
+    ],
 }
 
 SMTP_HOST = os.getenv("SMTP_HOST", "mailpit")
