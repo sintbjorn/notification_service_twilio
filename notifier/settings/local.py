@@ -12,3 +12,4 @@ CSRF_TRUSTED_ORIGINS = env_list(  # noqa: F405
 
 AUTH_PASSWORD_VALIDATORS = []
 NOTIFICATION_API_KEY = NOTIFICATION_API_KEY or "dev-notification-api-key"  # noqa: F405
+ENABLE_GRAPHIQL = env_bool("ENABLE_GRAPHIQL", DEBUG)  # noqa: F405

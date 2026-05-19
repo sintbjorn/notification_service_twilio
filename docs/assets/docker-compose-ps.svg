@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="360" viewBox="0 0 1280 360">
+  <rect width="100%" height="100%" fill="#0b1020"/>
+  <text x="42" y="54" class="title">Docker Compose Runtime</text>
+  <text x="42" y="84" class="subtitle">All local services running: web, worker, beat, db, redis, nginx, mailpit.</text>
+  <rect x="28" y="104" width="1224" height="228" rx="8" fill="#111827" stroke="#334155"/>
+  <text x="42" y="132" class="mono">NAME                                    IMAGE                                SERVICE   STATUS                    PORTS</text>
+<text x="42" y="156" class="mono">notification_service_twilio-beat-1      notification_service_twilio-beat     beat      Up</text>
+<text x="42" y="180" class="mono">notification_service_twilio-db-1        postgres:16                          db        Up (healthy)              5432/tcp</text>
+<text x="42" y="204" class="mono">notification_service_twilio-mailpit-1   axllent/mailpit:v1.29.7              mailpit   Up (healthy)              0.0.0.0:8025-&gt;8025/tcp</text>
+<text x="42" y="228" class="mono">notification_service_twilio-nginx-1     nginx:1.27                           nginx     Up                        0.0.0.0:80-&gt;80/tcp</text>
+<text x="42" y="252" class="mono">notification_service_twilio-redis-1     redis:7                              redis     Up (healthy)              6379/tcp</text>
+<text x="42" y="276" class="mono">notification_service_twilio-web-1       notification_service_twilio-web      web       Up (healthy)              0.0.0.0:8000-&gt;8000/tcp</text>
+<text x="42" y="300" class="mono">notification_service_twilio-worker-1    notification_service_twilio-worker   worker    Up</text>
+  <style>
+    .title{font:700 30px Inter,system-ui,sans-serif;fill:#f8fafc;letter-spacing:0}
+    .subtitle{font:400 15px Inter,system-ui,sans-serif;fill:#94a3b8;letter-spacing:0}
+    .mono{font:14px ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;fill:#d7e2f1;letter-spacing:0}
+  </style>
+</svg>

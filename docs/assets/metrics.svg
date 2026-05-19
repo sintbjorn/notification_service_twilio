@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="520" viewBox="0 0 1280 520">
+  <rect width="100%" height="100%" fill="#0b1020"/>
+  <text x="42" y="54" class="title">Secured Prometheus Metrics</text>
+  <text x="42" y="84" class="subtitle">Operational notification and outbox metrics exposed by /metrics with X-API-Key.</text>
+  <rect x="28" y="104" width="1224" height="388" rx="8" fill="#111827" stroke="#334155"/>
+  <text x="42" y="132" class="mono"># HELP notifications_sent_total Total notifications delivered successfully.</text>
+<text x="42" y="156" class="mono"># TYPE notifications_sent_total counter</text>
+<text x="42" y="180" class="mono">notifications_sent_total 0.0</text>
+<text x="42" y="204" class="mono"># HELP notifications_failed_total Total notifications that exhausted all delivery channels.</text>
+<text x="42" y="228" class="mono"># TYPE notifications_failed_total counter</text>
+<text x="42" y="252" class="mono">notifications_failed_total 0.0</text>
+<text x="42" y="276" class="mono"># HELP delivery_attempts_total Total delivery attempts by channel and status.</text>
+<text x="42" y="300" class="mono"># TYPE delivery_attempts_total counter</text>
+<text x="42" y="324" class="mono">delivery_attempts_total{channel="email",status="sent"} 1.0</text>
+<text x="42" y="348" class="mono"># HELP notification_outbox_rows_total Current number of notification outbox rows by status.</text>
+<text x="42" y="372" class="mono"># TYPE notification_outbox_rows_total gauge</text>
+<text x="42" y="396" class="mono">notification_outbox_rows_total{status="pending"} 0.0</text>
+<text x="42" y="420" class="mono">notification_outbox_rows_total{status="published"} 1.0</text>
+<text x="42" y="444" class="mono">notification_outbox_rows_total{status="failed"} 0.0</text>
+<text x="42" y="468" class="mono"># HELP notification_outbox_oldest_pending_age_seconds Age of oldest pending or failed outbox row.</text>
+<text x="42" y="492" class="mono">notification_outbox_oldest_pending_age_seconds 0.0</text>
+  <style>
+    .title{font:700 30px Inter,system-ui,sans-serif;fill:#f8fafc;letter-spacing:0}
+    .subtitle{font:400 15px Inter,system-ui,sans-serif;fill:#94a3b8;letter-spacing:0}
+    .mono{font:14px ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;fill:#d7e2f1;letter-spacing:0}
+  </style>
+</svg>

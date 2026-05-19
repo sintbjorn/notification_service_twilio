@@ -173,6 +173,8 @@ The Swagger UI shows notification endpoints, API key auth, request examples, res
 schemas, idempotency behavior, and common error responses such as `400`, `401`, `404`,
 and `429`.
 
+![Swagger UI](docs/assets/swagger-ui.png)
+
 ### GraphQL Playground
 
 GraphiQL is available at:
@@ -183,6 +185,8 @@ http://localhost:8000/graphql
 
 It can be used to run the `createNotification` mutation and inspect notification status
 queries without an external GraphQL client.
+
+![GraphQL playground](docs/assets/graphql-playground.png)
 
 ### Mailpit
 
@@ -195,6 +199,8 @@ http://localhost:8025
 
 After creating a notification for a user with an email address, the delivered email should
 appear in the Mailpit inbox.
+
+![Mailpit inbox](docs/assets/mailpit-inbox.png)
 
 ### Django Admin
 
@@ -211,6 +217,10 @@ Useful portfolio screenshots:
 - Delivery attempt list filtered by channel, success, and creation time, with linked users.
 - User list with notification counts, latest notification time, and channel priority.
 - Admin action that clones selected failed notifications for redelivery while preserving audit history.
+
+![Django admin notifications](docs/assets/admin-notifications.png)
+
+![Django admin outbox](docs/assets/admin-outbox.png)
 
 ### Docker Containers
 
@@ -235,6 +245,22 @@ mailpit   Local SMTP inbox
 PostgreSQL and Redis use named Docker volumes (`postgres_data`, `redis_data`) so local
 state survives container recreation. Use `docker compose down --volumes` only when you
 intentionally want a clean database and cache.
+
+![Docker Compose services](docs/assets/docker-compose-ps.svg)
+
+### Metrics
+
+Prometheus metrics are exposed through a secured endpoint:
+
+```bash
+curl http://localhost:8000/metrics \
+  -H "X-API-Key: dev-notification-api-key"
+```
+
+The metrics surface includes notification counters, delivery attempt counters, and durable
+outbox gauges for recovery monitoring.
+
+![Prometheus metrics](docs/assets/metrics.svg)
 
 ### API Endpoints
 

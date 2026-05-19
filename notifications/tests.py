@@ -584,6 +584,13 @@ class SystemEndpointTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
 
+    @override_settings(ENABLE_GRAPHIQL=True)
+    def test_graphql_playground_is_available_when_enabled(self):
+        response = self.client.get("/graphql", HTTP_ACCEPT="text/html")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("text/html", response["Content-Type"])
+
     def test_openapi_schema_documents_public_surface(self):
         response = self.client.get("/api/schema/", HTTP_ACCEPT="application/json")
 
