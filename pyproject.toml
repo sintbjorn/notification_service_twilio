@@ -1,6 +1,7 @@
 [tool.ruff]
 target-version = "py312"
 line-length = 100
+extend-exclude = ["notifications/migrations"]
 
 [tool.ruff.lint]
 select = [
@@ -20,5 +21,6 @@ source = ["notifications", "notifier"]
 omit = ["*/migrations/*"]
 
 [tool.coverage.report]
+fail_under = 85
 show_missing = true
 skip_covered = true

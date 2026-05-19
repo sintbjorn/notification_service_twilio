@@ -53,7 +53,7 @@ auditable delivery history.
 - Structured JSON logs for API and delivery workflows.
 - Prometheus counters for notification and delivery attempt outcomes.
 - Docker Compose setup for local development.
-- GitHub Actions CI for linting, migration checks, and tests.
+- GitHub Actions CI for Ruff, migration checks, coverage gate, security audit, and Docker smoke.
 - Mailpit integration for local email testing.
 
 ## Tech Stack
@@ -69,6 +69,7 @@ auditable delivery history.
 - **Docker / Docker Compose**
 - **Ruff**
 - **Coverage.py**
+- **pip-audit**
 - **Prometheus client**
 
 ## Architecture
@@ -448,7 +449,17 @@ docker compose -p notification_service_twilio_test -f docker-compose.yml -f dock
 Run linting:
 
 ```bash
-ruff check .
+python -m ruff check .
+python -m ruff format --check .
+```
+
+Run the same quality gates used by CI:
+
+```bash
+DJANGO_SETTINGS_MODULE=notifier.settings.test python -m coverage run manage.py test notifications
+DJANGO_SETTINGS_MODULE=notifier.settings.test python -m coverage report
+DJANGO_SETTINGS_MODULE=notifier.settings.test python manage.py makemigrations --check --dry-run
+python -m pip_audit -r requirements.txt --strict
 ```
 
 Run migrations:
@@ -482,6 +493,16 @@ Check service health:
 curl http://localhost:8000/health/live
 curl http://localhost:8000/health/ready
 ```
+
+## CI/CD
+
+GitHub Actions runs three independent gates:
+
+- `quality`: Ruff lint/format, Django system check, migration check, and tests with the
+  configured coverage threshold.
+- `security`: `pip-audit` against pinned runtime dependencies, with a JSON audit artifact.
+- `docker`: runtime image build plus Docker Compose smoke test against `/health/live` and
+  `/health/ready`.
 
 ## Settings Profiles
 

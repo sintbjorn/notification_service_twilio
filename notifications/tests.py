@@ -94,12 +94,14 @@ class ProviderContractTests(SimpleTestCase):
     def test_email_provider_smtp_error_is_retryable(self):
         provider = EmailProvider("smtp.example.com", 587, "", "", sender="no-reply@example.com")
 
-        with patch(
-            "notifications.services.providers.email.smtplib.SMTP",
-            side_effect=OSError("network unreachable"),
+        with (
+            patch(
+                "notifications.services.providers.email.smtplib.SMTP",
+                side_effect=OSError("network unreachable"),
+            ),
+            self.assertRaises(ProviderError) as raised,
         ):
-            with self.assertRaises(ProviderError) as raised:
-                provider.send("user@example.com", "Subject", "Body")
+            provider.send("user@example.com", "Subject", "Body")
 
         self.assert_provider_error(
             raised.exception,
@@ -147,12 +149,14 @@ class ProviderContractTests(SimpleTestCase):
             payload={"message": "Invalid To number"},
         )
 
-        with patch(
-            "notifications.services.providers.sms_twilio.requests.post",
-            return_value=response,
+        with (
+            patch(
+                "notifications.services.providers.sms_twilio.requests.post",
+                return_value=response,
+            ),
+            self.assertRaises(ProviderError) as raised,
         ):
-            with self.assertRaises(ProviderError) as raised:
-                provider.send("+15551234567", "Hello")
+            provider.send("+15551234567", "Hello")
 
         self.assert_provider_error(
             raised.exception,
@@ -169,12 +173,14 @@ class ProviderContractTests(SimpleTestCase):
                 status_code=status_code,
                 payload={"message": "Temporary failure"},
             )
-            with patch(
-                "notifications.services.providers.sms_twilio.requests.post",
-                return_value=response,
+            with (
+                patch(
+                    "notifications.services.providers.sms_twilio.requests.post",
+                    return_value=response,
+                ),
+                self.assertRaises(ProviderError) as raised,
             ):
-                with self.assertRaises(ProviderError) as raised:
-                    provider.send("+15551234567", "Hello")
+                provider.send("+15551234567", "Hello")
 
             self.assert_provider_error(
                 raised.exception,
@@ -221,12 +227,14 @@ class ProviderContractTests(SimpleTestCase):
             payload={"description": "Bad Request: chat not found"},
         )
 
-        with patch(
-            "notifications.services.providers.telegram.requests.post",
-            return_value=response,
+        with (
+            patch(
+                "notifications.services.providers.telegram.requests.post",
+                return_value=response,
+            ),
+            self.assertRaises(ProviderError) as raised,
         ):
-            with self.assertRaises(ProviderError) as raised:
-                provider.send("12345", "Hello")
+            provider.send("12345", "Hello")
 
         self.assert_provider_error(
             raised.exception,
@@ -243,12 +251,14 @@ class ProviderContractTests(SimpleTestCase):
                 status_code=status_code,
                 payload={"description": "Temporary failure"},
             )
-            with patch(
-                "notifications.services.providers.telegram.requests.post",
-                return_value=response,
+            with (
+                patch(
+                    "notifications.services.providers.telegram.requests.post",
+                    return_value=response,
+                ),
+                self.assertRaises(ProviderError) as raised,
             ):
-                with self.assertRaises(ProviderError) as raised:
-                    provider.send("12345", "Hello")
+                provider.send("12345", "Hello")
 
             self.assert_provider_error(
                 raised.exception,
@@ -469,9 +479,11 @@ class SeedDemoCommandTests(TestCase):
     def test_seed_demo_creates_user_and_notification(self):
         out = StringIO()
 
-        with patch("notifications.services.producer.schedule_outbox_dispatch") as dispatch:
-            with self.captureOnCommitCallbacks(execute=True):
-                call_command("seed_demo", stdout=out)
+        with (
+            patch("notifications.services.producer.schedule_outbox_dispatch") as dispatch,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            call_command("seed_demo", stdout=out)
 
         self.assertIn("Demo notification enqueued.", out.getvalue())
         self.assertEqual(User.objects.count(), 1)
@@ -520,14 +532,16 @@ class NotificationAPITests(TestCase):
         self.assertEqual(response.status_code, 401)
 
     def test_create_notification_accepts_valid_api_key(self):
-        with patch("notifications.services.producer.schedule_outbox_dispatch") as dispatch:
-            with self.captureOnCommitCallbacks(execute=True):
-                response = self.client.post(
-                    "/api/notifications/",
-                    {"user_id": self.user.id, "message": "Hello"},
-                    format="json",
-                    HTTP_X_API_KEY="test-notification-api-key",
-                )
+        with (
+            patch("notifications.services.producer.schedule_outbox_dispatch") as dispatch,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.post(
+                "/api/notifications/",
+                {"user_id": self.user.id, "message": "Hello"},
+                format="json",
+                HTTP_X_API_KEY="test-notification-api-key",
+            )
 
         self.assertEqual(response.status_code, 201)
         self.assertEqual(Notification.objects.count(), 1)

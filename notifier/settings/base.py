@@ -178,9 +178,7 @@ SPECTACULAR_SETTINGS = {
     "TAGS": [
         {
             "name": "Notifications",
-            "description": (
-                "Create notifications and inspect their asynchronous delivery status."
-            ),
+            "description": ("Create notifications and inspect their asynchronous delivery status."),
         },
         {
             "name": "System",

@@ -1,9 +1,10 @@
 COMPOSE ?= docker compose
+PYTHON ?= python
 TEST_PROJECT ?= notification_service_twilio_test
 API_KEY ?= dev-notification-api-key
 DEMO_IDEMPOTENCY_KEY ?= portfolio-demo-001
 
-.PHONY: help up rebuild down restart ps logs logs-web logs-worker logs-beat migrate makemigrations superuser shell demo demo-idempotent dispatch-outbox health metrics test test-compose lint format-check openapi
+.PHONY: help up rebuild down restart ps logs logs-web logs-worker logs-beat migrate makemigrations superuser shell demo demo-idempotent dispatch-outbox health metrics test test-coverage test-compose lint format-check migration-check security-audit docker-build openapi
 
 help:
 	@printf "Notification Service commands:\n\n"
@@ -23,9 +24,13 @@ help:
 	@printf "  make metrics            Fetch Prometheus metrics with API key\n"
 	@printf "  make logs-worker        Follow Celery worker logs\n"
 	@printf "  make test               Run Django tests in the running web container\n"
+	@printf "  make test-coverage      Run tests with the configured coverage threshold\n"
 	@printf "  make test-compose       Run tests in an isolated Compose project\n"
 	@printf "  make lint               Run Ruff linting locally\n"
 	@printf "  make format-check       Run Ruff format check locally\n"
+	@printf "  make migration-check    Fail if model changes are missing migrations\n"
+	@printf "  make security-audit     Run pip-audit against runtime dependencies\n"
+	@printf "  make docker-build       Build Docker runtime images\n"
 	@printf "  make openapi            Generate OpenAPI schema inside the web container\n"
 
 up:
@@ -87,14 +92,27 @@ metrics:
 test:
 	$(COMPOSE) exec web env DJANGO_SETTINGS_MODULE=notifier.settings.test python manage.py test notifications
 
+test-coverage:
+	DJANGO_SETTINGS_MODULE=notifier.settings.test $(PYTHON) -m coverage run manage.py test notifications
+	DJANGO_SETTINGS_MODULE=notifier.settings.test $(PYTHON) -m coverage report
+
 test-compose:
 	docker compose -p $(TEST_PROJECT) -f docker-compose.yml -f docker-compose.test.yml run --rm web python manage.py test notifications
 
 lint:
-	ruff check .
+	$(PYTHON) -m ruff check .
 
 format-check:
-	ruff format --check .
+	$(PYTHON) -m ruff format --check .
+
+migration-check:
+	$(COMPOSE) exec web env DJANGO_SETTINGS_MODULE=notifier.settings.test python manage.py makemigrations --check --dry-run
+
+security-audit:
+	$(PYTHON) -m pip_audit -r requirements.txt --strict
+
+docker-build:
+	$(COMPOSE) build web worker beat
 
 openapi:
 	$(COMPOSE) exec web python manage.py spectacular --format openapi-json --file /tmp/openapi.json

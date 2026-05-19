@@ -113,7 +113,7 @@ from .serializers import (
                 value={"detail": "Not found."},
                 response_only=True,
                 status_codes=["404"],
-            )
+            ),
         ],
     ),
 )

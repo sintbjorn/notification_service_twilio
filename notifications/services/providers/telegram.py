@@ -11,7 +11,9 @@ class TelegramProvider:
 
     def send(self, chat_id: str, body: str) -> ProviderResult:
         if not chat_id:
-            raise ProviderError("Recipient chat_id is empty", retryable=False, code="missing_chat_id")
+            raise ProviderError(
+                "Recipient chat_id is empty", retryable=False, code="missing_chat_id"
+            )
 
         url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
         try:

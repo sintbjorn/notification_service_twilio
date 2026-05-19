@@ -4,40 +4,154 @@ on:
   push:
     branches: ["main"]
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  test:
+  quality:
+    name: Lint, migrations, tests
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     env:
-      DJANGO_SETTINGS_MODULE: notifier.settings.test
       DJANGO_SECRET_KEY: ci-secret
+      DJANGO_SETTINGS_MODULE: notifier.settings.test
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      PYTHONUNBUFFERED: "1"
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: pip
+          cache: "pip"
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
 
       - name: Install dependencies
-        run: python -m pip install --upgrade pip && pip install -r requirements-dev.txt
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
 
-      - name: Lint
-        run: ruff check .
+      - name: Ruff lint
+        run: python -m ruff check .
 
-      - name: Format check
-        run: ruff format --check .
+      - name: Ruff format
+        run: python -m ruff format --check .
 
-      - name: Dependency audit
-        run: pip-audit -r requirements.txt
+      - name: Django system check
+        run: python manage.py check
 
-      - name: Check migrations
+      - name: Migration check
         run: python manage.py makemigrations --check --dry-run
 
-      - name: Test
-        run: coverage run manage.py test notifications && coverage report --fail-under=80
+      - name: Tests with coverage gate
+        run: |
+          python -m coverage run manage.py test notifications
+          python -m coverage report
 
-      - name: Docker build
+      - name: Generate coverage XML
+        run: python -m coverage xml
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+
+  security:
+    name: Security audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install audit tooling
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pip-audit==2.10.0
+
+      - name: Audit pinned runtime dependencies
+        run: |
+          python -m pip_audit \
+            -r requirements.txt \
+            --strict \
+            --progress-spinner off \
+            --format json \
+            --output pip-audit.json
+
+      - name: Upload audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pip-audit-report
+          path: pip-audit.json
+          if-no-files-found: ignore
+
+  docker:
+    name: Docker build and smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [quality, security]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare Compose environment
+        run: cp .env.example .env
+
+      - name: Build runtime image
         run: docker build .
+
+      - name: Build Compose services
+        run: docker compose -p notification_service_ci build web worker beat
+
+      - name: Start Compose stack
+        run: docker compose -p notification_service_ci up -d db redis mailpit web
+
+      - name: Run migrations
+        run: docker compose -p notification_service_ci exec -T web python manage.py migrate --noinput
+
+      - name: Smoke health endpoints
+        run: |
+          docker compose -p notification_service_ci exec -T web python - <<'PY'
+          import json
+          import urllib.request
+
+          for path in ("health/live", "health/ready"):
+              with urllib.request.urlopen(f"http://127.0.0.1:8000/{path}", timeout=5) as response:
+                  payload = json.loads(response.read())
+                  assert payload["status"] == "ok", payload
+          PY
+
+      - name: Show Compose status
+        if: always()
+        run: docker compose -p notification_service_ci ps
+
+      - name: Show service logs on failure
+        if: failure()
+        run: docker compose -p notification_service_ci logs --no-color --tail=200
+
+      - name: Stop Compose stack
+        if: always()
+        run: docker compose -p notification_service_ci down --volumes --remove-orphans

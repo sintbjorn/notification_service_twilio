@@ -14,7 +14,6 @@ from .models import (
 )
 from .tasks import dispatch_notification_outbox_task, schedule_outbox_dispatch
 
-
 STATUS_COLORS = {
     NotificationStatus.QUEUED: "#6b7280",
     NotificationStatus.PROCESSING: "#2563eb",

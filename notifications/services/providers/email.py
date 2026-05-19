@@ -1,4 +1,5 @@
 import smtplib
+from contextlib import suppress
 from email.message import EmailMessage
 
 from .base import ProviderError, ProviderResult
@@ -28,10 +29,8 @@ class EmailProvider:
         try:
             with smtplib.SMTP(self.host, self.port, timeout=15) as smtp:
                 if self.use_tls:
-                    try:
+                    with suppress(smtplib.SMTPException):
                         smtp.starttls()
-                    except smtplib.SMTPException:
-                        pass
                 if self.user and self.password:
                     smtp.login(self.user, self.password)
                 smtp.send_message(msg)

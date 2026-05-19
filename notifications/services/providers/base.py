@@ -18,4 +18,3 @@ class ProviderError(Exception):
 
 class NotificationProvider(Protocol):
     channel: str
-
